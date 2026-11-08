@@ -5,3 +5,5 @@ dist/
 artifacts/
 
 .media-cache/
+# Local secrets written by `elevenlabs onboard`
+/.env.local

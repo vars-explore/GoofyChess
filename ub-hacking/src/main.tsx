@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Chess, type Square } from 'chess.js';
 import { io } from 'socket.io-client';
-import { ArrowUpRight, ArrowRight, Bot, Check, ChevronDown, Copy, Flag, FlipVertical2, Headphones, Link, RotateCcw, Settings2, Sparkles, Users, Volume2, VolumeX, X, Zap } from 'lucide-react';
+import { ArrowUpRight, ArrowRight, Bot, Check, ChevronDown, Copy, Flag, FlipVertical2, Headphones, Link, LoaderCircle, Mic, MicOff, RotateCcw, Settings2, Sparkles, Users, Volume2, VolumeX, X, Zap } from 'lucide-react';
 import { Piece } from './Piece';
 import { MoveAnimation } from './MoveAnimation';
 import { describeMotion, type MoveMotion } from '../shared/motion';
@@ -12,6 +12,7 @@ import { CheckmateScene } from './CheckmateScene';
 import { memeMedia, reactionSounds } from '../shared/media';
 import { checkmateNames, isNewMove } from '../shared/presentation';
 import { demos } from '../shared/demos';
+import { resolveVoiceMove } from './voice';
 import type { Ack, BotDifficulty, Color, Mode, Reaction, Snapshot } from '../shared/types';
 import './style.css';
 import './cutscene.css';
@@ -42,7 +43,12 @@ function App(){
  const [copied,setCopied]=useState(false),[confirm,setConfirm]=useState<'leave'|'resign'|null>(null);
  const prefs=useRef({muted,volume,enabled,reduced});prefs.current={muted,volume,enabled,reduced};
  const [motion,setMotion]=useState<MoveMotion|null>(null);
+ const [recapAudioBusy,setRecapAudioBusy]=useState(false),[recapSpeaking,setRecapSpeaking]=useState(false);
+ const [micStatus,setMicStatus]=useState<'idle'|'recording'|'transcribing'>('idle'),[voiceTranscript,setVoiceTranscript]=useState('');
  const motionRef=useRef<MoveMotion|null>(null),pendingReaction=useRef<Reaction|null>(null);
+ const recapAudioRef=useRef<HTMLAudioElement|null>(null),recapAudioUrl=useRef<string|null>(null);
+ const recorderRef=useRef<MediaRecorder|null>(null),recordingStream=useRef<MediaStream|null>(null);
+ const voiceStartPosition=useRef<{gameId:string;version:number}|null>(null);
  const landingTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const draggedMove=useRef<{from:string;to:string}|null>(null);
  function cancelMotion(){if(landingTimer.current)clearTimeout(landingTimer.current);landingTimer.current=null;motionRef.current=null;pendingReaction.current=null;draggedMove.current=null;setMotion(null);}
@@ -54,9 +60,71 @@ function App(){
  const legal=selected?chess.moves({square:selected,verbose:true}):[];
  const isMyTurn=(state?.mode==='bot'||state?.mode==='online')?session?.color===state?.turn:true;
  const hasOpponent=state?.mode!=='online'||(state?.players.w?.connected&&state?.players.b?.connected);
- const playable=!!state&&!state.result&&connected&&!busy&&!motion&&isMyTurn&&hasOpponent;
+ const playable=!!state&&!state.result&&connected&&!busy&&!motion&&micStatus==='idle'&&isMyTurn&&hasOpponent;
  function saveSeat(s:Session|null){setSession(s);sessionRef.current=s;s?sessionStorage.setItem('bt-seat',JSON.stringify(s)):sessionStorage.removeItem('bt-seat');}
  function request(event:string,data:any):Promise<Ack>{return new Promise(resolve=>socket.timeout(7000).emit(event,data,(err:Error|null,result:Ack)=>resolve(err?{ok:false,error:'Connection timed out. Please try again.'}:result)));}
+ function stopRecapAudio(){
+  recapAudioRef.current?.pause();recapAudioRef.current=null;
+  if(recapAudioUrl.current)URL.revokeObjectURL(recapAudioUrl.current);
+  recapAudioUrl.current=null;setRecapSpeaking(false);
+ }
+ function cancelVoiceRecording(){
+  const recorder=recorderRef.current;
+  if(recorder){recorder.ondataavailable=null;recorder.onstop=null;if(recorder.state!=='inactive')recorder.stop();}
+  recorderRef.current=null;recordingStream.current?.getTracks().forEach(track=>track.stop());recordingStream.current=null;
+  voiceStartPosition.current=null;setMicStatus('idle');
+ }
+ async function playRecap(){
+  if(recapAudioRef.current){stopRecapAudio();return;}
+  const text=state?.reviewSummary;
+  if(!text)return;
+  setRecapAudioBusy(true);setError('');
+  try{
+   const response=await fetch('/api/voice/speech',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})});
+   if(!response.ok){const detail=await response.json().catch(()=>null) as {error?:string}|null;throw new Error(detail?.error||'Could not generate recap audio.');}
+   const url=URL.createObjectURL(await response.blob()),audio=new Audio(url);
+   recapAudioUrl.current=url;recapAudioRef.current=audio;
+   const finish=()=>{if(recapAudioRef.current!==audio)return;recapAudioRef.current=null;URL.revokeObjectURL(url);recapAudioUrl.current=null;setRecapSpeaking(false);};
+   audio.onended=finish;audio.onerror=finish;
+   await audio.play();setRecapSpeaking(true);
+  }catch(error){stopRecapAudio();setError(error instanceof Error?error.message:'Could not play recap audio.');}
+  finally{setRecapAudioBusy(false);}
+ }
+ async function transcribeVoiceMove(blob:Blob,position:{gameId:string;version:number}){
+  try{
+   const response=await fetch('/api/voice/transcribe',{method:'POST',headers:{'content-type':blob.type||'audio/webm'},body:blob});
+   if(!response.ok){const detail=await response.json().catch(()=>null) as {error?:string}|null;throw new Error(detail?.error||'Could not transcribe the voice move.');}
+   const result=await response.json() as {text:string},current=stateRef.current;
+   setVoiceTranscript(result.text);
+   if(!current||current.gameId!==position.gameId||current.version!==position.version){throw new Error('The board changed while listening. Please say the move again.');}
+   const resolved=resolveVoiceMove(new Chess(current.fen),result.text);
+   if(!resolved.move)throw new Error(resolved.error);
+   await sendMove(resolved.move.from,resolved.move.to,resolved.move.promotion);
+  }catch(error){setError(error instanceof Error?error.message:'Could not process the voice move.');}
+  finally{voiceStartPosition.current=null;setMicStatus('idle');}
+ }
+ async function startVoiceMove(){
+  if(micStatus==='recording'){recorderRef.current?.stop();setMicStatus('transcribing');return;}
+  if(!playable||!state)return;
+  if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){setError('Voice moves need a browser with microphone recording support.');return;}
+  setError('');setVoiceTranscript('');
+  try{
+   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+   const mimeType=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus'].find(type=>MediaRecorder.isTypeSupported(type));
+   if(!mimeType){stream.getTracks().forEach(track=>track.stop());throw new Error('This browser does not support a compatible microphone recording format.');}
+   const recorder=new MediaRecorder(stream,{mimeType}),chunks:BlobPart[]=[],position={gameId:state.gameId,version:state.version};
+   recorderRef.current=recorder;recordingStream.current=stream;voiceStartPosition.current=position;
+   recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};
+   recorder.onerror=()=>{stream.getTracks().forEach(track=>track.stop());recorderRef.current=null;recordingStream.current=null;voiceStartPosition.current=null;setMicStatus('idle');setError('Microphone recording failed. Please try again.');};
+   recorder.onstop=()=>{
+    stream.getTracks().forEach(track=>track.stop());recorderRef.current=null;recordingStream.current=null;
+    const audio=new Blob(chunks,{type:recorder.mimeType});
+    if(!audio.size){voiceStartPosition.current=null;setMicStatus('idle');setError('No audio was recorded. Try again.');return;}
+    setMicStatus('transcribing');void transcribeVoiceMove(audio,position);
+   };
+   recorder.start();setMicStatus('recording');
+  }catch(error){setError(error instanceof Error?error.message:'Could not start microphone recording.');}
+ }
  useEffect(()=>{
   const onConnect=()=>{cancelMotion();stateRef.current=null;setConnected(true);const seat=sessionRef.current;if(seat)void request('resume',seat).then(r=>{if(r.ok&&r.state)setState(r.state);else{saveSeat(null);setState(null);setError(r.error||'Unable to reconnect.');}});};
   const showReaction=(next:Reaction)=>{
@@ -75,7 +143,7 @@ function App(){
    const changed=old?.gameId!==next.gameId||old?.version!==next.version;
    const dragged=draggedMove.current?.from===next.last?.from&&draggedMove.current?.to===next.last?.to;
    const movement=describeMotion(old,next,dragged);
-   if(changed)cancelMotion();
+   if(changed){cancelMotion();stopRecapAudio();if(recorderRef.current?.state==='recording')cancelVoiceRecording();}
    stateRef.current=next;setState(next);setSelected(null);setPromotion(null);
    if(changed){setReaction(null);stopReactionSound();if(timer.current)clearTimeout(timer.current);}
    if(changed)setFinale(null);
@@ -100,6 +168,7 @@ function App(){
   socket.on('connect',onConnect);socket.on('disconnect',onDisconnect);socket.on('state',onState);socket.on('reaction',onReaction);socket.on('replaced',replaced);socket.connect();
   return()=>{socket.off('connect',onConnect);socket.off('disconnect',onDisconnect);socket.off('state',onState);socket.off('reaction',onReaction);socket.off('replaced',replaced);socket.disconnect();cancelMotion();if(timer.current)clearTimeout(timer.current);};
  },[]);
+ useEffect(()=>()=>{recapAudioRef.current?.pause();if(recapAudioUrl.current)URL.revokeObjectURL(recapAudioUrl.current);recordingStream.current?.getTracks().forEach(track=>track.stop());if(recorderRef.current?.state!=='inactive')recorderRef.current?.stop();},[]);
  useEffect(()=>{configureAudio(muted,volume);},[muted,volume]);
  useEffect(()=>{for(const kind of Object.keys(memeMedia)){const img=new Image();img.src='/api/media/meme-'+kind;}},[]);
  async function start(mode:Mode,join=false){
@@ -150,7 +219,7 @@ function App(){
     {promotion&&<div className="board-modal"><div className="promotion-card"><h3>A little upgrade?</h3><p>Choose your promotion.</p><div>{['q','r','b','n'].map(p=><button key={p} aria-label={`Promote to ${names[p]}`} onClick={()=>void sendMove(promotion.from,promotion.to,p)}><Piece type={p} color={chess.turn()}/></button>)}</div><button className="text-button" onClick={()=>setPromotion(null)}>Cancel</button></div></div>}
     </div>
     {playerBar(bottom)}
-    <div className="board-toolbar"><span><Headphones size={15}/> {muted?'Sound off. Dignity still at risk.':'Sound on. You’ve been warned.'}</span><div><button className="icon-button" title="Flip board" aria-label="Flip board" disabled={!!motion} onClick={()=>setFlip(!flip)}><FlipVertical2 size={18}/></button><button className="icon-button" title={muted?'Enable sound':'Mute sound'} aria-label={muted?'Enable sound':'Mute sound'} onClick={()=>{unlockAudio();setMuted(!muted);}}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button></div></div>
+    <div className="board-toolbar"><span><Headphones size={15}/> {micStatus==='recording'?'Say a move, then tap Stop.':micStatus==='transcribing'?'Transcribing voice move…':voiceTranscript?`Heard: ${voiceTranscript}`:muted?'Sound off. Dignity still at risk.':'Sound on. You’ve been warned.'}</span><div><button className={`voice-move-button ${micStatus==='recording'?'recording':''}`} aria-label={micStatus==='recording'?'Stop voice move recording':'Speak a chess move'} title={micStatus==='recording'?'Stop recording':'Speak a chess move'} disabled={!playable&&micStatus!=='recording'} onClick={()=>void startVoiceMove()}>{micStatus==='recording'?<MicOff size={16}/>:micStatus==='transcribing'?<LoaderCircle className="spin" size={16}/>:<Mic size={16}/>}<span>{micStatus==='recording'?'Stop':micStatus==='transcribing'?'Wait':'Voice move'}</span></button><button className="icon-button" title="Flip board" aria-label="Flip board" disabled={!!motion} onClick={()=>setFlip(!flip)}><FlipVertical2 size={18}/></button><button className="icon-button" title={muted?'Enable sound':'Mute sound'} aria-label={muted?'Enable sound':'Mute sound'} onClick={()=>{unlockAudio();setMuted(!muted);}}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button></div></div>
    </section>
    <aside className="sidebar">
     {!state?<><section className="lobby card"><div className="section-kicker"><Bot size={16}/> {lobbyTab==='bot'?'HUMAN VS MACHINE. ZERO MERCY.':'GOOD COMPANY. TERRIBLE MOVES.'}</div><h2>{lobbyTab==='bot'?'Play the bot.':'Bring a friend.<br/>Lose your dignity.'}</h2><p>{lobbyTab==='bot'?'Pick your difficulty. Prepare to be humbled (or entertained).':'Real chess. Live memes.<br/>A deeply unserious rivalry.'}</p><div className="tabs"><button className={lobbyTab==='bot'?'active':''} onClick={()=>setLobbyTab('bot')}><Bot size={13}/> Play bot</button><button className={lobbyTab==='online'&&!joinMode?'active':''} onClick={()=>{setLobbyTab('online');setJoinMode(false);}}><Users size={13}/> Create room</button><button className={lobbyTab==='online'&&joinMode?'active':''} onClick={()=>{setLobbyTab('online');setJoinMode(true);}}><Link size={13}/> Join friend</button></div>{lobbyTab==='bot'?<><span className="field-label">CHOOSE DIFFICULTY</span><div className="difficulty-picker">{[['easy','Easy 🤪','Blunder-prone, goofy'],['medium','Medium ☕','Casual club level'],['hard','Hard ⚡','Competitive Stockfish'],['expert','Grandmaster 🤖','Calculated menace']].map(([id,label,desc])=><button key={id} className={difficulty===id?'active':''} onClick={()=>setDifficulty(id as BotDifficulty)}><strong>{label}</strong><small>{desc}</small></button>)}</div><span className="field-label">PICK YOUR SIDE</span><div className="color-picker">{[['w','White','♔'],['random','Random','⇄'],['b','Black','♚']].map(([id,label,glyph])=><button key={id} className={color===id?'active':''} onClick={()=>setColor(id)}><span>{glyph}</span>{label}</button>)}</div><button className="primary" disabled={!connected||busy} onClick={()=>void start('bot')}>{busy?'Waking the bot…':'Start bot match'}<ArrowRight size={18}/></button></>:<><label className="field-label" htmlFor="nickname">YOUR ALIAS</label><input id="nickname" placeholder="e.g. DefinitelyNotMagnus" maxLength={24} value={name} onChange={e=>setName(e.target.value)}/>{joinMode?<><label className="field-label" htmlFor="room">ROOM CODE</label><input id="room" placeholder="8-character room code" maxLength={8} value={roomCode} onChange={e=>setRoomCode(e.target.value.toUpperCase())}/></>:<><span className="field-label">PICK YOUR SIDE</span><div className="color-picker">{[['w','White','♔'],['random','Random','⇄'],['b','Black','♚']].map(([id,label,glyph])=><button key={id} className={color===id?'active':''} onClick={()=>setColor(id)}><span>{glyph}</span>{label}</button>)}</div></>}<button className="primary" disabled={!connected||busy||(joinMode&&!roomCode.trim())} onClick={()=>void start('online',joinMode)}>{busy?'Setting the stage…':joinMode?'Join the chaos':'Create a room'}<ArrowRight size={18}/></button></>}<div className="no-account"><span/>No signup. No stakes. Just vibes.</div><div className="or"><span/>OR KEEP IT LOCAL<span/></div><label className="field-label" htmlFor="opponent-name">LOCAL OPPONENT NAME</label><input id="opponent-name" placeholder="Your friend’s name" maxLength={24} value={opponentName} onChange={e=>setOpponentName(e.target.value)}/><button className="secondary local-play" disabled={!connected||busy} onClick={()=>void start('local')}><Users size={17}/>Pass & play<ArrowUpRight size={16}/></button></section><section className="lab-card" onClick={()=>!busy&&connected&&void start('demo')}><div className="lab-icon"><Zap size={21}/></div><div><h3>Skip to the funny part</h3><p>Try a few beautifully bad situations.</p></div><button aria-label="Try demo" disabled={!connected||busy}><ArrowUpRight size={19}/></button></section></>:<>
@@ -158,7 +227,7 @@ function App(){
      {state.mode==='online'&&<button className="invite" onClick={()=>void copyInvite()}><Link size={17}/><span>{state.id}</span>{copied?<Check size={17}/>:<Copy size={17}/>}<small>{copied?'Copied!':'Copy invite'}</small></button>}
      {state.mode==='demo'&&<><label htmlFor="scenario" className="field-label">CHOOSE YOUR DISASTER</label><div className="select-wrap"><select id="scenario" value={state.demo} onChange={e=>void control('demo',e.target.value)}>{demos.map(d=><option key={d.id} value={d.id}>{d.label}</option>)}</select><ChevronDown size={16}/></div><div className="demo-hint"><Sparkles size={18}/><div><strong>{preset?.name}</strong><p>{preset?.hint}</p></div></div></>}
      {state.offer&&<div className="offer">{state.offer===session?.color?'Draw offered. Waiting for your friend.':<>Your friend offers a draw.<div><button onClick={()=>void control('draw')}>Accept</button><button onClick={()=>void control('decline')}>Decline</button></div></>}</div>}
-     {state.result&&<section className="postgame-review" aria-live="polite"><div className="section-kicker"><Sparkles size={14}/> STOCKFISH × GEMINI RECAP</div>{state.reviewStatus==='pending'?<p>Stockfish is reviewing the moves; Gemini is writing the recap…</p>:state.reviewStatus==='ready'?<p>{state.reviewSummary}</p>:<p>Game recap unavailable. Check the server’s Gemini API setup.</p>}</section>}
+     {state.result&&<section className="postgame-review" aria-live="polite"><div className="section-kicker"><Sparkles size={14}/> STOCKFISH × GEMINI RECAP</div>{state.reviewStatus==='pending'?<p>Stockfish is reviewing the moves; Gemini is writing the recap…</p>:state.reviewStatus==='ready'?<div className="recap-content"><p>{state.reviewSummary}</p><button className="icon-button" aria-label={recapSpeaking?'Stop recap audio':'Listen to recap'} title={recapSpeaking?'Stop recap audio':'Listen to recap'} disabled={recapAudioBusy} onClick={()=>void playRecap()}>{recapAudioBusy?<LoaderCircle className="spin" size={17}/>:recapSpeaking?<VolumeX size={17}/>:<Volume2 size={17}/>}</button></div>:<p>Game recap unavailable. Check the server’s Gemini API setup.</p>}</section>}
      {state.result?<button className="primary" onClick={()=>void control('rematch')} disabled={state.rematch===session?.color}>{state.rematch===session?.color?'Waiting for rematch…':state.rematch?'Accept rematch':'Run it back'}<RotateCcw size={17}/></button>:<div className="game-actions">{state.mode==='online'?<><button onClick={()=>void control('draw')}>Offer draw</button><button onClick={()=>setConfirm('resign')}><Flag size={14}/>Resign</button></>:state.mode==='bot'?<><button onClick={()=>setConfirm('resign')}><Flag size={14}/>Resign</button><button onClick={()=>void control('reset')}><RotateCcw size={15}/>Restart match</button></>:<button onClick={()=>void control('reset')}><RotateCcw size={15}/>Reset position</button>}</div>}
      </section>
      <section className="moves card"><div className="moves-heading"><h3>The receipts</h3><span>{state.history.length} MOVES</span></div><div className="move-table"><div className="move-table-head"><span>#</span><span>WHITE</span><span>BLACK</span></div>{state.history.length?Array.from({length:Math.ceil(state.history.length/2)},(_,i)=><div className="move-row" key={i}><span>{i+1}</span><span>{state.history[i*2]}</span><span>{state.history[i*2+1]||'—'}</span></div>):<div className="empty-history"><span>♟</span><p>A clean slate.<br/>Let’s see how long that lasts.</p></div>}</div></section>

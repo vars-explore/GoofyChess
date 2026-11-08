@@ -26,14 +26,15 @@ export async function summarizeWithGemini(sans:string[],scores:Score[],result:st
   `Moves and engine evaluations (sampled every ${stride} ply when needed):`,
   ...entries,
  ].join('\n');
- const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent',{
+ const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',{
   method:'POST',
   headers:{'content-type':'application/json','x-goog-api-key':key},
-  body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.3,maxOutputTokens:300,thinkingConfig:{thinkingBudget:0}}}),
+  body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:1024,thinkingConfig:{thinkingLevel:'minimal'}}}),
   signal:AbortSignal.timeout(60000),
  });
- if(!response.ok)throw new Error(`Gemini returned HTTP ${response.status}`);
- const data=await response.json() as {candidates?:Array<{content?:{parts?:Array<{text?:string}>}}>};
+ if(!response.ok)throw new Error(`Gemini returned HTTP ${response.status}: ${await response.text()}`);
+ const data=await response.json() as {candidates?:Array<{content?:{parts?:Array<{text?:string}>};finishReason?:string}>};
+ if(data.candidates?.[0]?.finishReason==='MAX_TOKENS')throw new Error('Gemini recap reached the output token limit');
  const summary=data.candidates?.[0]?.content?.parts?.map(part=>part.text||'').join('').trim();
  if(!summary)throw new Error('Gemini returned an empty recap');
  return summary.slice(0,2000);

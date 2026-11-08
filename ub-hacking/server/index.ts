@@ -3,13 +3,23 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { Server } from 'socket.io';
+import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 import { Game } from './game';
 import { attachMedia } from './media';
 import { Engine } from './engine';
 import { summarizeWithGemini } from './review';
 import { boardEvent, catalog, evaluationEvent, reactionConfig, zone } from '../shared/reactions';
 import type { BotDifficulty, Color, Reaction, ReactionKind, Mode } from '../shared/types';
+
+async function* audioChunks(stream:ReadableStream<Uint8Array>){
+ const reader=stream.getReader();
+ try{
+  while(true){const {done,value}=await reader.read();if(done)break;yield value;}
+ }finally{reader.releaseLock();}
+}
 
 export function createApp(port=Number(process.env.PORT)||3001) {
  const app=express(),http=createServer(app),engine=new Engine(),rooms=new Map<string,Game>();
@@ -21,6 +31,46 @@ export function createApp(port=Number(process.env.PORT)||3001) {
   cb(null,allowed);
  }});
  app.get('/api/health',(_req,res)=>res.json({ok:true,engine:engine.ready}));
+ function elevenLabsClient(){
+  const key=process.env.ELEVENLABS_API_KEY;
+  return key?new ElevenLabsClient({apiKey:key}):null;
+ }
+ app.post('/api/voice/speech',express.json({limit:'8kb'}),async(req,res)=>{
+  const text=typeof req.body?.text==='string'?req.body.text.trim():'';
+  if(!text||text.length>2000){res.status(400).json({error:'Recap text must be between 1 and 2000 characters.'});return;}
+  const client=elevenLabsClient();
+  if(!client){res.status(503).json({error:'ElevenLabs is not configured. Restart the server after onboarding.'});return;}
+  try{
+   const audio=await client.textToSpeech.convert('JBFqnCBsd6RMkjVDRZzb',{
+    text,modelId:'eleven_flash_v2_5',outputFormat:'mp3_44100_128',
+   });
+   res.type('audio/mpeg').set('Cache-Control','no-store');
+   await pipeline(Readable.from(audioChunks(audio)),res);
+  }catch(error){
+   console.error('ElevenLabs speech generation failed:',error instanceof Error?error.message:error);
+   if(!res.headersSent)res.status(502).json({error:'Could not generate recap audio.'});
+   else res.destroy();
+  }
+ });
+ app.post('/api/voice/transcribe',express.raw({type:'audio/*',limit:'5mb'}),async(req,res)=>{
+  if(!Buffer.isBuffer(req.body)||req.body.length===0){res.status(400).json({error:'Record a voice move before submitting.'});return;}
+  const client=elevenLabsClient();
+  if(!client){res.status(503).json({error:'ElevenLabs is not configured. Restart the server after onboarding.'});return;}
+  const contentType=req.get('content-type')?.split(';',1)[0].trim()||'audio/webm';
+  try{
+   const result=await client.speechToText.convert({
+    file:{data:req.body,filename:'voice-move',contentType},
+    modelId:'scribe_v2',languageCode:'eng',noVerbatim:true,
+    keyterms:['chess','pawn','knight','bishop','rook','queen','king','castle'],
+   });
+   const text=result.text.trim();
+   if(!text){res.status(422).json({error:'I could not hear a move. Try again.'});return;}
+   res.json({text});
+  }catch(error){
+   console.error('ElevenLabs voice transcription failed:',error instanceof Error?error.message:error);
+   res.status(502).json({error:'Could not transcribe the voice move.'});
+  }
+ });
  attachMedia(app);
  app.use(express.static(resolve('dist')));
  app.get('/{*path}',(_req,res)=>res.sendFile(resolve('dist/index.html')));
