@@ -19,7 +19,9 @@ export class Game {
  reset(demo?:string) {
   const preset=demo?demos.find(d=>d.id===demo):undefined;
   if(demo&&!preset)throw new Error('Unknown demo');
-  this.chess=new Chess(preset?.fen);this.demo=demo;this.gameId=randomUUID();this.version=0;
+  this.chess=new Chess(preset?.fen);
+  for(const move of preset?.setup||[])this.chess.move(move);
+  this.demo=demo;this.gameId=randomUUID();this.version=0;
   this.result=null;this.offer=null;this.rematch=null;this.zones={w:0,b:0};this.lastReaction={w:0,b:0};this.lastCaption={};this.touched=Date.now();
  }
  color(socket:string):Color|undefined {return (['w','b'] as Color[]).find(c=>this.players[c]?.socket===socket);}

@@ -1,4 +1,15 @@
-export const demos = [
+export const demos:Array<{id:string;name:string;label:string;fen:string;move:string;hint:string;setup?:string[];event?:string}> = [
+ {id:'castle',name:'Your bodyguard has arrived',label:'Castling',fen:'4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1',move:'O-O',hint:'Move the king from e1 to g1. Watch the rook escort it.',event:'castle'},
+ {id:'fork',name:'Two problems. One horse.',label:'Knight fork',fen:'3k3r/8/8/6N1/8/8/8/4K3 w - - 0 1',move:'Nf7+',hint:'Move the knight from g5 to f7.',event:'fork'},
+ {id:'doublecheck',name:'Double trouble',label:'Double check',fen:'4k3/8/8/8/8/8/4B3/K3R3 w - - 0 1',move:'Bb5+',hint:'Move the bishop from e2 to b5.',event:'doublecheck'},
+ {id:'recapture',name:'Return to sender',label:'Instant recapture',fen:'4k3/8/5n2/3p4/4P3/2N5/8/4K3 w - - 0 1',setup:['exd5','Nxd5'],move:'Nxd5',hint:'Your pawn was just captured. Move the knight from c3 to d5.',event:'recapture'},
+ {id:'pawnbully',name:'The intern is in charge',label:'Pawn takes a big piece',fen:'4k3/8/8/3r4/4P3/8/8/4K3 w - - 0 1',move:'exd5',hint:'Move the pawn from e4 to d5 to capture the rook.',event:'pawnbully'},
+ {id:'kingcapture',name:'Hands-on leadership',label:'King capture',fen:'7k/8/8/8/8/8/4p3/4K3 w - - 0 1',move:'Kxe2',hint:'Move the king from e1 to e2.',event:'kingcapture'},
+ {id:'underpromotion',name:'Queen? Too mainstream.',label:'Underpromotion',fen:'8/P6k/8/8/8/8/8/4K3 w - - 0 1',move:'a8=N',hint:'Move a7 to a8 and choose a knight.',event:'underpromotion'},
+ {id:'streak',name:'Three course meal',label:'Three captures by one piece',fen:'7k/8/8/8/8/ppp5/8/R3K3 w - - 0 1',setup:['Rxa3','Kg8','Rxb3','Kh8'],move:'Rxc3',hint:'This rook already ate twice. Move b3 to c3.',event:'streak'},
+ {id:'instantkarma',name:'Shortest reign in history',label:'Promotion immediately captured',fen:'1r6/P6k/8/8/8/8/8/4K3 w - - 0 1',setup:['a8=Q'],move:'Rxa8',hint:'Black to move: capture the new queen with b8 to a8.',event:'instantkarma'},
+ {id:'firstblood',name:'Friendship has left the chat',label:'First capture',fen:'4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1',move:'exd5',hint:'Move the pawn from e4 to d5.',event:'firstblood'},
+ {id:'queentrade',name:'A soul for a soul',label:'Queen trade',fen:'3qk3/8/8/8/8/8/3Q4/3RK3 b - - 0 1',setup:['Qxd2+'],move:'Rxd2',hint:'Your queen was captured. Move the rook from d1 to d2.',event:'queentrade'},
  {id:'check',name:'A little pressure',label:'Check',fen:'4k3/8/8/8/8/8/R7/4K3 w - - 0 1',move:'Re2+',hint:'Move the rook from a2 to e2.'},
  {id:'queen',name:'An expensive mistake',label:'Queen capture',fen:'4k3/8/8/3q4/8/8/8/3RK3 w - - 0 1',move:'Rxd5',hint:'Move the rook from d1 to d5.'},
  {id:'promotion',name:'Character development',label:'Promotion',fen:'8/P6k/8/8/8/8/8/4K3 w - - 0 1',move:'a8=Q',hint:'Move the pawn from a7 to a8. Choose a queen.'},

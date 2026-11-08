@@ -4,6 +4,8 @@ import { Chess, type Square } from 'chess.js';
 import { io } from 'socket.io-client';
 import { ArrowUpRight, ArrowRight, Bot, Check, ChevronDown, Copy, Flag, FlipVertical2, Headphones, Link, RotateCcw, Settings2, Sparkles, Users, Volume2, VolumeX, X, Zap } from 'lucide-react';
 import { Piece } from './Piece';
+import { MoveAnimation } from './MoveAnimation';
+import { describeMotion, type MoveMotion } from '../shared/motion';
 import { configureAudio, moveSound, reactionSound, stopReactionSound, unlockAudio } from './audio';
 import { Meme } from './Meme';
 import { CheckmateScene } from './CheckmateScene';
@@ -38,7 +40,12 @@ function App(){
  const [settings,setSettings]=useState(false),[muted,setMuted]=useState(false),[volume,setVolume]=useState(.6),[enabled,setEnabled]=useState(true);
  const [reduced,setReduced]=useState(()=>matchMedia('(prefers-reduced-motion: reduce)').matches);
  const [copied,setCopied]=useState(false),[confirm,setConfirm]=useState<'leave'|'resign'|null>(null);
- const prefs=useRef({muted,volume,enabled});prefs.current={muted,volume,enabled};
+ const prefs=useRef({muted,volume,enabled,reduced});prefs.current={muted,volume,enabled,reduced};
+ const [motion,setMotion]=useState<MoveMotion|null>(null);
+ const motionRef=useRef<MoveMotion|null>(null),pendingReaction=useRef<Reaction|null>(null);
+ const landingTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+ const draggedMove=useRef<{from:string;to:string}|null>(null);
+ function cancelMotion(){if(landingTimer.current)clearTimeout(landingTimer.current);landingTimer.current=null;motionRef.current=null;pendingReaction.current=null;draggedMove.current=null;setMotion(null);}
  const seen=useRef(new Set<string>()),timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const chess=useMemo(()=>new Chess(state?.fen||emptyFen),[state?.fen]);
  const bottom:Color=flip?'b':'w';
@@ -47,30 +54,48 @@ function App(){
  const legal=selected?chess.moves({square:selected,verbose:true}):[];
  const isMyTurn=(state?.mode==='bot'||state?.mode==='online')?session?.color===state?.turn:true;
  const hasOpponent=state?.mode!=='online'||(state?.players.w?.connected&&state?.players.b?.connected);
- const playable=!!state&&!state.result&&connected&&!busy&&isMyTurn&&hasOpponent;
+ const playable=!!state&&!state.result&&connected&&!busy&&!motion&&isMyTurn&&hasOpponent;
  function saveSeat(s:Session|null){setSession(s);sessionRef.current=s;s?sessionStorage.setItem('bt-seat',JSON.stringify(s)):sessionStorage.removeItem('bt-seat');}
  function request(event:string,data:any):Promise<Ack>{return new Promise(resolve=>socket.timeout(7000).emit(event,data,(err:Error|null,result:Ack)=>resolve(err?{ok:false,error:'Connection timed out. Please try again.'}:result)));}
  useEffect(()=>{
-  const onConnect=()=>{stateRef.current=null;setConnected(true);const seat=sessionRef.current;if(seat)void request('resume',seat).then(r=>{if(r.ok&&r.state)setState(r.state);else{saveSeat(null);setState(null);setError(r.error||'Unable to reconnect.');}});};
-  const onState=(next:Snapshot)=>{
-   const old=stateRef.current;
-   if(isNewMove(old,next)&&!prefs.current.muted)moveSound(next.history.at(-1)?.includes('x'));
-   stateRef.current=next;setState(next);setSelected(null);setPromotion(null);
-   if(old?.gameId!==next.gameId||old?.version!==next.version){setReaction(null);stopReactionSound();if(timer.current)clearTimeout(timer.current);}
-   if(old?.gameId!==next.gameId)setFinale(null);
-  };
-  const onReaction=(next:Reaction)=>{
-   const current=stateRef.current;if(!current||next.gameId!==current.gameId||next.version!==current.version||seen.current.has(next.id)||!prefs.current.enabled)return;
-   seen.current.add(next.id);if(seen.current.size>200)seen.current.delete(seen.current.values().next().value!);
+  const onConnect=()=>{cancelMotion();stateRef.current=null;setConnected(true);const seat=sessionRef.current;if(seat)void request('resume',seat).then(r=>{if(r.ok&&r.state)setState(r.state);else{saveSeat(null);setState(null);setError(r.error||'Unable to reconnect.');}});};
+  const showReaction=(next:Reaction)=>{
+   const current=stateRef.current;
+   if(!current||current.gameId!==next.gameId||current.version!==next.version||!prefs.current.enabled)return;
    if(timer.current)clearTimeout(timer.current);setReaction(next);
    if(next.kind==='mate'){setFinale(checkmateNames(current));return;}
    if(!prefs.current.muted)reactionSound(reactionSounds[next.kind],next.duration);
    timer.current=setTimeout(()=>setReaction(null),next.duration);
   };
-  const onDisconnect=()=>setConnected(false);
-  const replaced=()=>{saveSeat(null);setState(null);setError('This seat was opened in another tab.');};
+  const onState=(next:Snapshot)=>{
+   const old=stateRef.current;
+   const changed=old?.gameId!==next.gameId||old?.version!==next.version;
+   const dragged=draggedMove.current?.from===next.last?.from&&draggedMove.current?.to===next.last?.to;
+   const movement=describeMotion(old,next,dragged);
+   if(changed)cancelMotion();
+   stateRef.current=next;setState(next);setSelected(null);setPromotion(null);
+   if(changed){setReaction(null);stopReactionSound();if(timer.current)clearTimeout(timer.current);}
+   if(old?.gameId!==next.gameId)setFinale(null);
+   if(movement&&!prefs.current.reduced){
+    motionRef.current=movement;setMotion(movement);
+    landingTimer.current=setTimeout(()=>{
+     landingTimer.current=null;motionRef.current=null;setMotion(null);
+     if(!prefs.current.muted)moveSound(!!movement.captured);
+     const queued=pendingReaction.current;pendingReaction.current=null;
+     if(queued)showReaction(queued);
+    },movement.duration);
+   }else if(isNewMove(old,next)&&!prefs.current.muted)moveSound(next.history.at(-1)?.includes('x'));
+  };
+  const onReaction=(next:Reaction)=>{
+   const current=stateRef.current;if(!current||next.gameId!==current.gameId||next.version!==current.version||seen.current.has(next.id)||!prefs.current.enabled)return;
+   seen.current.add(next.id);if(seen.current.size>200)seen.current.delete(seen.current.values().next().value!);
+   if(motionRef.current){pendingReaction.current=next;return;}
+   showReaction(next);
+  };
+  const onDisconnect=()=>{cancelMotion();setConnected(false);};
+  const replaced=()=>{cancelMotion();saveSeat(null);setState(null);setError('This seat was opened in another tab.');};
   socket.on('connect',onConnect);socket.on('disconnect',onDisconnect);socket.on('state',onState);socket.on('reaction',onReaction);socket.on('replaced',replaced);socket.connect();
-  return()=>{socket.off('connect',onConnect);socket.off('disconnect',onDisconnect);socket.off('state',onState);socket.off('reaction',onReaction);socket.off('replaced',replaced);socket.disconnect();if(timer.current)clearTimeout(timer.current);};
+  return()=>{socket.off('connect',onConnect);socket.off('disconnect',onDisconnect);socket.off('state',onState);socket.off('reaction',onReaction);socket.off('replaced',replaced);socket.disconnect();cancelMotion();if(timer.current)clearTimeout(timer.current);};
  },[]);
  useEffect(()=>{configureAudio(muted,volume);},[muted,volume]);
  useEffect(()=>{for(const kind of Object.keys(memeMedia)){const img=new Image();img.src='/api/media/meme-'+kind;}},[]);
@@ -81,12 +106,12 @@ function App(){
  }
  async function sendMove(from:string,to:string,piece?:string){
   if(!state)return;unlockAudio();setBusy(true);setSelected(null);setPromotion(null);setError('');
-  const r=await request('move',{gameId:state.gameId,version:state.version,from,to,promotion:piece});if(!r.ok)setError(r.error||'Move rejected.');setBusy(false);
+  const r=await request('move',{gameId:state.gameId,version:state.version,from,to,promotion:piece});if(!r.ok){draggedMove.current=null;setError(r.error||'Move rejected.');}setBusy(false);
  }
  function attempt(from:Square,to:Square){if(!playable||!from||!/^[a-h][1-8]$/.test(from))return;const move=chess.moves({square:from,verbose:true}).find(m=>m.to===to);if(!move)return;if(move.promotion)setPromotion({from,to});else void sendMove(from,to);}
- function clickSquare(square:Square){if(!playable)return;if(selected&&legal.some(m=>m.to===square)){attempt(selected,square);return;}const p=chess.get(square);setSelected(p?.color===chess.turn()?(selected===square?null:square):null);}
+ function clickSquare(square:Square){if(!playable)return;draggedMove.current=null;if(selected&&legal.some(m=>m.to===square)){attempt(selected,square);return;}const p=chess.get(square);setSelected(p?.color===chess.turn()?(selected===square?null:square):null);}
  async function control(action:string,demo?:string){setError('');const r=await request('control',{action,demo});if(!r.ok)setError(r.error||'Action failed.');}
- async function leave(){await request('leave',{});saveSeat(null);setState(null);setReaction(null);setFinale(null);stopReactionSound();setConfirm(null);setFlip(false);history.replaceState(null,'',location.pathname);}
+ async function leave(){await request('leave',{});cancelMotion();saveSeat(null);stateRef.current=null;setState(null);setReaction(null);setFinale(null);stopReactionSound();setConfirm(null);setFlip(false);history.replaceState(null,'',location.pathname);}
  async function copyInvite(){try{await navigator.clipboard.writeText(`${location.origin}/?room=${state?.id}`);setCopied(true);setTimeout(()=>setCopied(false),1800);}catch{setError('Copy this invite from your browser address bar.');}}
  const king=chess.board().flat().find(p=>p?.type==='k'&&p.color===chess.turn())?.square;
  const reactionIndex=reaction?.square?squares.indexOf(reaction.square as Square):-1;
@@ -110,18 +135,19 @@ function App(){
     <div className="board-heading"><span><span className="live-dot"/>{state?state.mode==='online'?'FRIEND MATCH':state.mode==='bot'?`VS BOT (${state.difficulty?.toUpperCase()||'MEDIUM'})`:state.mode==='demo'?'THE MEME LAB':'PASS & PLAY':'THE MAIN STAGE'}</span><span>STANDARD CHESS <span className="dot-separator">/</span> NO CLOCK</span></div>
     {playerBar(bottom==='w'?'b':'w',true)}
     <div className="board-shell"><div className="board" role="group" aria-label="Chessboard">
-     {squares.map((square,i)=>{const p=chess.get(square),target=legal.some(m=>m.to===square),last=state?.last&&(state.last.from===square||state.last.to===square),check=state?.check&&king===square;return <button key={square} className={`square ${(Math.floor(i/8)+i%8)%2?'dark':'light'} ${selected===square?'chosen':''} ${last?'last':''} ${check?'check':''}`} aria-label={`${square}${p?` ${p.color==='w'?'white':'black'} ${names[p.type]}`:' empty'}${target?' legal destination':''}`} onClick={()=>clickSquare(square)} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();attempt(e.dataTransfer.getData('text/plain') as Square,square);}}>
+     {squares.map((square,i)=>{const p=chess.get(square),target=legal.some(m=>m.to===square),last=state?.last&&(state.last.from===square||state.last.to===square),check=state?.check&&king===square;return <button key={square} className={`square ${(Math.floor(i/8)+i%8)%2?'dark':'light'} ${selected===square?'chosen':''} ${last?'last':''} ${check?'check':''}`} aria-label={`${square}${p?` ${p.color==='w'?'white':'black'} ${names[p.type]}`:' empty'}${target?' legal destination':''}`} onClick={()=>clickSquare(square)} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const from=e.dataTransfer.getData('text/plain') as Square;draggedMove.current={from,to:square};attempt(from,square);}}>
       {i%8===0&&<span className="rank">{square[1]}</span>}{i>=56&&<span className="file">{square[0]}</span>}
-      {p&&<span className="piece-wrap" draggable={!!playable&&p.color===chess.turn()} onDragStart={e=>{setSelected(square);e.dataTransfer.setData('text/plain',square);}}><Piece type={p.type} color={p.color}/></span>}
+      {p&&<span className={`piece-wrap ${motion&&(motion.to===square||motion.rook?.to===square)?'piece-in-transit':''}`} draggable={!!playable&&p.color===chess.turn()} onDragStart={e=>{setSelected(square);e.dataTransfer.setData('text/plain',square);}}><Piece type={p.type} color={p.color}/></span>}
       {target&&<span className={p?'target capture-target':'target'}/>}
      </button>;})}
     </div>
+    {motion&&<MoveAnimation key={motion.id} move={motion} squares={squares}/> }
     {!state&&<div className="sample-meme image-sample"><Meme kind="check" caption="YOUR KING, EVENTUALLY"/></div>}
     {reaction&&enabled&&!finale&&<div className={`meme real-meme ${reaction.tone}`} key={reaction.id} style={reactionStyle} role="status"><Meme kind={reaction.kind} caption={reaction.caption}/></div>}
     {promotion&&<div className="board-modal"><div className="promotion-card"><h3>A little upgrade?</h3><p>Choose your promotion.</p><div>{['q','r','b','n'].map(p=><button key={p} aria-label={`Promote to ${names[p]}`} onClick={()=>void sendMove(promotion.from,promotion.to,p)}><Piece type={p} color={chess.turn()}/></button>)}</div><button className="text-button" onClick={()=>setPromotion(null)}>Cancel</button></div></div>}
     </div>
     {playerBar(bottom)}
-    <div className="board-toolbar"><span><Headphones size={15}/> {muted?'Sound off. Dignity still at risk.':'Sound on. You’ve been warned.'}</span><div><button className="icon-button" title="Flip board" aria-label="Flip board" onClick={()=>setFlip(!flip)}><FlipVertical2 size={18}/></button><button className="icon-button" title={muted?'Enable sound':'Mute sound'} aria-label={muted?'Enable sound':'Mute sound'} onClick={()=>{unlockAudio();setMuted(!muted);}}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button></div></div>
+    <div className="board-toolbar"><span><Headphones size={15}/> {muted?'Sound off. Dignity still at risk.':'Sound on. You’ve been warned.'}</span><div><button className="icon-button" title="Flip board" aria-label="Flip board" disabled={!!motion} onClick={()=>setFlip(!flip)}><FlipVertical2 size={18}/></button><button className="icon-button" title={muted?'Enable sound':'Mute sound'} aria-label={muted?'Enable sound':'Mute sound'} onClick={()=>{unlockAudio();setMuted(!muted);}}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button></div></div>
    </section>
    <aside className="sidebar">
     {!state?<><section className="lobby card"><div className="section-kicker"><Bot size={16}/> {lobbyTab==='bot'?'HUMAN VS MACHINE. ZERO MERCY.':'GOOD COMPANY. TERRIBLE MOVES.'}</div><h2>{lobbyTab==='bot'?'Play the bot.':'Bring a friend.<br/>Lose your dignity.'}</h2><p>{lobbyTab==='bot'?'Pick your difficulty. Prepare to be humbled (or entertained).':'Real chess. Live memes.<br/>A deeply unserious rivalry.'}</p><div className="tabs"><button className={lobbyTab==='bot'?'active':''} onClick={()=>setLobbyTab('bot')}><Bot size={13}/> Play bot</button><button className={lobbyTab==='online'&&!joinMode?'active':''} onClick={()=>{setLobbyTab('online');setJoinMode(false);}}><Users size={13}/> Create room</button><button className={lobbyTab==='online'&&joinMode?'active':''} onClick={()=>{setLobbyTab('online');setJoinMode(true);}}><Link size={13}/> Join friend</button></div>{lobbyTab==='bot'?<><span className="field-label">CHOOSE DIFFICULTY</span><div className="difficulty-picker">{[['easy','Easy 🤪','Blunder-prone, goofy'],['medium','Medium ☕','Casual club level'],['hard','Hard ⚡','Competitive Stockfish'],['expert','Grandmaster 🤖','Calculated menace']].map(([id,label,desc])=><button key={id} className={difficulty===id?'active':''} onClick={()=>setDifficulty(id as BotDifficulty)}><strong>{label}</strong><small>{desc}</small></button>)}</div><span className="field-label">PICK YOUR SIDE</span><div className="color-picker">{[['w','White','♔'],['random','Random','⇄'],['b','Black','♚']].map(([id,label,glyph])=><button key={id} className={color===id?'active':''} onClick={()=>setColor(id)}><span>{glyph}</span>{label}</button>)}</div><button className="primary" disabled={!connected||busy} onClick={()=>void start('bot')}>{busy?'Waking the bot…':'Start bot match'}<ArrowRight size={18}/></button></>:<><label className="field-label" htmlFor="nickname">YOUR ALIAS</label><input id="nickname" placeholder="e.g. DefinitelyNotMagnus" maxLength={24} value={name} onChange={e=>setName(e.target.value)}/>{joinMode?<><label className="field-label" htmlFor="room">ROOM CODE</label><input id="room" placeholder="8-character room code" maxLength={8} value={roomCode} onChange={e=>setRoomCode(e.target.value.toUpperCase())}/></>:<><span className="field-label">PICK YOUR SIDE</span><div className="color-picker">{[['w','White','♔'],['random','Random','⇄'],['b','Black','♚']].map(([id,label,glyph])=><button key={id} className={color===id?'active':''} onClick={()=>setColor(id)}><span>{glyph}</span>{label}</button>)}</div></>}<button className="primary" disabled={!connected||busy||(joinMode&&!roomCode.trim())} onClick={()=>void start('online',joinMode)}>{busy?'Setting the stage…':joinMode?'Join the chaos':'Create a room'}<ArrowRight size={18}/></button></>}<div className="no-account"><span/>No signup. No stakes. Just vibes.</div><div className="or"><span/>OR KEEP IT LOCAL<span/></div><label className="field-label" htmlFor="opponent-name">LOCAL OPPONENT NAME</label><input id="opponent-name" placeholder="Your friend’s name" maxLength={24} value={opponentName} onChange={e=>setOpponentName(e.target.value)}/><button className="secondary local-play" disabled={!connected||busy} onClick={()=>void start('local')}><Users size={17}/>Pass & play<ArrowUpRight size={16}/></button></section><section className="lab-card" onClick={()=>!busy&&connected&&void start('demo')}><div className="lab-icon"><Zap size={21}/></div><div><h3>Skip to the funny part</h3><p>Try a few beautifully bad situations.</p></div><button aria-label="Try demo" disabled={!connected||busy}><ArrowUpRight size={19}/></button></section></>:<>

@@ -1,3 +1,4 @@
+import { MAX_MOVE_DURATION } from '../shared/motion';
 import express from 'express';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -25,6 +26,8 @@ export function createApp(port=Number(process.env.PORT)||3001) {
  function broadcast(game:Game){io.to(game.id).emit('state',game.snapshot());}
  function react(game:Game,kind:ReactionKind,color:Color,square?:string,variant?:number){
   const player=game.players[color];if(!player?.socket)return;
+  // Routine exchanges should not become a meme after every move.
+  if(['recapture','kingcapture','capture'].includes(kind)&&Date.now()-game.lastReaction[color]<reactionConfig.cooldownMs)return;
   const item=catalog[kind],key=kind+color;
   const i=variant??((game.lastCaption[key]??-1)+1)%item.captions.length;game.lastCaption[key]=i;
   const reaction:Reaction={id:randomUUID(),gameId:game.gameId,version:game.version,kind,caption:item.captions[i],tone:item.tone,square,image:item.image,duration:reactionConfig.durationMs};
@@ -60,7 +63,7 @@ export function createApp(port=Number(process.env.PORT)||3001) {
   // Let that reaction and its sound finish before advancing the board.
   while(true){
    if(rooms.get(game.id)!==game||game.gameId!==gameId||game.version!==version||game.result)return;
-   const remaining=Math.max(game.lastReaction.w,game.lastReaction.b)+reactionConfig.durationMs+150-Date.now();
+   const remaining=Math.max(game.lastReaction.w,game.lastReaction.b)+reactionConfig.durationMs+MAX_MOVE_DURATION+150-Date.now();
    if(remaining<=0)break;
    await new Promise(r=>setTimeout(r,remaining));
   }

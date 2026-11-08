@@ -23,7 +23,7 @@ test('rematch generation invalidates moves from the old board',()=>{
 });
 test('every demo suggested move is legal and triggers its intended event',()=>{
  const expected:Record<string,string>={check:'check',queen:'queen',promotion:'promotion',enpassant:'enpassant',mate:'mate',stalemate:'stalemate'};
- for(const d of demos){const c=new Chess(d.fen),m=c.move(d.move);assert.ok(m,d.id);if(expected[d.id])assert.equal(boardEvent(c,m,1)?.kind,expected[d.id],d.id);else assert.equal(boardEvent(c,m,1),null);}
+ for(const d of demos){const c=new Chess(d.fen);for(const setup of d.setup||[])c.move(setup);const m=c.move(d.move);assert.ok(m,d.id);const event=d.event||expected[d.id];if(event)assert.equal(boardEvent(c,m,1)?.kind,event,d.id);else assert.equal(boardEvent(c,m,1),null);}
 });
 test('castling moves king and rook and triggers its reaction',()=>{
  const c=new Chess('r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1');const m=c.move('O-O');

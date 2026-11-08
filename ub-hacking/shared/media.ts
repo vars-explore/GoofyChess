@@ -1,6 +1,16 @@
 import type { ReactionKind } from './types';
 // Verified Imgflip get_memes IDs. No game or player data is sent to the provider.
 export const memeMedia:Record<ReactionKind,{id:string;name:string;url:string}>={
+ fork:{id:'87743020',name:'Two Buttons',url:'https://i.imgflip.com/1g8my4.jpg'},
+ doublecheck:{id:'91538330',name:'X, X Everywhere',url:'https://i.imgflip.com/1ihzfe.jpg'},
+ recapture:{id:'217743513',name:'UNO Draw 25 Cards',url:'https://i.imgflip.com/3lmzyx.jpg'},
+ pawnbully:{id:'438680',name:'Batman Slapping Robin',url:'https://i.imgflip.com/9ehk.jpg'},
+ kingcapture:{id:'61579',name:'One Does Not Simply',url:'https://i.imgflip.com/1bij.jpg'},
+ underpromotion:{id:'101470',name:'Ancient Aliens',url:'https://i.imgflip.com/26am.jpg'},
+ streak:{id:'97984',name:'Disaster Girl',url:'https://i.imgflip.com/23ls.jpg'},
+ instantkarma:{id:'79132341',name:'Bike Fall',url:'https://i.imgflip.com/1b42wl.jpg'},
+ firstblood:{id:'309868304',name:'Trade Offer',url:'https://i.imgflip.com/54hjww.jpg'},
+ queentrade:{id:'135256802',name:'Epic Handshake',url:'https://i.imgflip.com/28j0te.jpg'},
  check:{id:'custom-check',name:'Sweaty Man',url:'https://i.imgflip.com/5d1xrs.jpg'},
  mate:{id:'505705955',name:'Absolute Cinema',url:'https://i.imgflip.com/8d317n.png'},
  queen:{id:'80707627',name:'Sad Pablo Escobar',url:'https://i.imgflip.com/1c1uej.jpg'},
@@ -24,4 +34,4 @@ export const soundMedia={
  fahh:{url:'/sounds/fahh.mp3',source:'local'},
 };
 export type SoundId=keyof typeof soundMedia;
-export const reactionSounds:Record<ReactionKind,SoundId>={check:'boom',mate:'slash',queen:'violin',promotion:'wow',castle:'slash',enpassant:'bruh',stalemate:'bruh',capture:'boom',winning:'wow',losing:'violin',swing:'fahh',comeback:'wow',danger:'boom'};
+export const reactionSounds:Record<ReactionKind,SoundId>={check:'boom',mate:'slash',queen:'violin',promotion:'wow',castle:'slash',enpassant:'bruh',stalemate:'bruh',capture:'boom',winning:'wow',losing:'violin',swing:'fahh',comeback:'wow',danger:'boom',fork:'wow',doublecheck:'boom',recapture:'bruh',pawnbully:'boom',kingcapture:'slash',underpromotion:'bruh',streak:'wow',instantkarma:'fahh',firstblood:'slash',queentrade:'violin'};

@@ -1,0 +1,29 @@
+.move-stage{position:absolute;inset:5px;pointer-events:none;z-index:4;overflow:hidden;border-radius:2px}
+.motion-cell{position:absolute;width:12.5%;height:12.5%;display:grid;place-items:center;pointer-events:none}
+.motion-cell .piece{width:88%;height:88%}
+.motion-body,.promoted-body{position:absolute;inset:0;display:grid;place-items:center}
+.moving-piece{z-index:2;animation:piece-travel var(--duration) cubic-bezier(.22,.7,.25,1) both}
+.moving-piece .motion-body{animation:piece-lift var(--duration) ease-in-out both}
+.knight-hop .motion-body{animation:knight-leap var(--duration) ease-in-out both}
+.escort{z-index:1;filter:drop-shadow(0 0 5px #e8cf7777)}
+.king-dash .motion-body{filter:drop-shadow(-7px 2px 3px #fff8)}
+.drop-settle .motion-body{animation:drop-settle var(--duration) ease-out both}
+.captured-ghost{z-index:1;animation:capture-pop var(--duration) ease-in both}
+.vanishing-pawn{animation:en-passant-poof var(--duration) ease-in both}
+.landing-ring{z-index:0;animation:landing-flash var(--duration) ease-out both}
+.landing-ring span{width:72%;height:72%;border:2px solid #fff5c5;border-radius:50%;box-shadow:0 0 12px #fff5c577}
+.promotion-aura span{border-color:#e7b5ff;box-shadow:0 0 22px #c26bff,inset 0 0 16px #e4b1ff}
+.promoting .motion-body{animation:promotion-out var(--duration) ease-in-out both}
+.promoted-body{animation:promotion-in var(--duration) ease-out both;filter:drop-shadow(0 0 9px #d994ff)}
+.piece-in-transit{visibility:hidden}
+@keyframes piece-travel{from{transform:translate(0,0)}65%,100%{transform:translate(var(--dx),var(--dy))}}
+@keyframes piece-lift{0%,100%{transform:translateY(0) scale(1)}35%{transform:translateY(-7%) scale(1.06)}70%{transform:translateY(2%) scale(1.04,.96)}}
+@keyframes knight-leap{0%,100%{transform:translateY(0) rotate(0)}35%{transform:translateY(-48%) rotate(-9deg) scale(1.08)}70%{transform:translateY(4%) scale(1.08,.9)}}
+@keyframes drop-settle{0%{transform:scale(1.1) translateY(-5%)}65%{transform:scale(1.04,.96)}100%{transform:scale(1)}}
+@keyframes capture-pop{0%,50%{opacity:1;transform:scale(1)}100%{opacity:0;transform:translateY(-35%) rotate(24deg) scale(.25)}}
+@keyframes en-passant-poof{0%,70%{opacity:1;transform:scale(1)}85%{opacity:.7;transform:scale(1.15)}100%{opacity:0;transform:translateY(18%) scale(.1)}}
+@keyframes landing-flash{0%,55%{opacity:0;transform:scale(.5)}70%{opacity:.8}100%{opacity:0;transform:scale(1.25)}}
+@keyframes promotion-out{0%,55%{opacity:1}70%,100%{opacity:0;transform:scale(.4)}}
+@keyframes promotion-in{0%,55%{opacity:0;transform:scale(.3)}80%{opacity:1;transform:scale(1.16)}100%{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.move-stage{display:none}.piece-in-transit{visibility:visible}}
+.reduced .move-stage{display:none}.reduced .piece-in-transit{visibility:visible}
