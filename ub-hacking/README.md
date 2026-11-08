@@ -1,4 +1,4 @@
-# Blunder Theater
+# Goofy Chess
 
 Live chess with hidden Stockfish analysis, animated meme reactions, and optional sound effects. No commentary, engine scores, or best-move arrows are shown to players.
 
