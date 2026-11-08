@@ -7,6 +7,7 @@ export type Player = {name:string;token:string;socket:string|null};
 export class Game {
  id=randomBytes(4).toString('hex').toUpperCase();
  gameId=randomUUID();version=0;chess=new Chess();
+ reviewFens:string[]=[];reviewSans:string[]=[];reviewStatus:'pending'|'ready'|'unavailable'|undefined;reviewSummary?:string;
  players:Partial<Record<Color,Player>>={};
  result:string|null=null;offer:Color|null=null;rematch:Color|null=null;
  touched=Date.now();demo?:string;difficulty?:BotDifficulty;
@@ -14,15 +15,16 @@ export class Game {
  lastCaption:Record<string,number>={};
  constructor(public mode:Mode,demo?:string,difficulty?:BotDifficulty){
   this.difficulty=difficulty;
-  if(demo)this.reset(demo);
+  this.reset(demo);
  }
  reset(demo?:string) {
   const preset=demo?demos.find(d=>d.id===demo):undefined;
   if(demo&&!preset)throw new Error('Unknown demo');
   this.chess=new Chess(preset?.fen);
-  for(const move of preset?.setup||[])this.chess.move(move);
+  this.reviewFens=[this.chess.fen()];this.reviewSans=[];
+  for(const move of preset?.setup||[]){const played=this.chess.move(move);this.reviewSans.push(played.san);this.reviewFens.push(this.chess.fen());}
   this.demo=demo;this.gameId=randomUUID();this.version=0;
-  this.result=null;this.offer=null;this.rematch=null;this.zones={w:0,b:0};this.lastReaction={w:0,b:0};this.lastCaption={};this.touched=Date.now();
+  this.result=null;this.offer=null;this.rematch=null;this.reviewStatus=undefined;this.reviewSummary=undefined;this.zones={w:0,b:0};this.lastReaction={w:0,b:0};this.lastCaption={};this.touched=Date.now();
  }
  color(socket:string):Color|undefined {return (['w','b'] as Color[]).find(c=>this.players[c]?.socket===socket);}
  move(socket:string,input:{gameId:string;version:number;from:string;to:string;promotion?:string}) {
@@ -35,6 +37,7 @@ export class Game {
   if(!/^[a-h][1-8]$/.test(input.from)||!/^[a-h][1-8]$/.test(input.to))throw new Error('Invalid square.');
   if(input.promotion&&!/^[qrbn]$/.test(input.promotion))throw new Error('Invalid promotion.');
   const move=this.chess.move({from:input.from,to:input.to,promotion:input.promotion});
+  this.reviewSans.push(move.san);this.reviewFens.push(this.chess.fen());
   this.version++;this.touched=Date.now();this.offer=null;
   if(this.chess.isCheckmate())this.result=`${move.color==='w'?'White':'Black'} wins by checkmate`;
   else if(this.chess.isStalemate())this.result='Draw by stalemate';
@@ -47,6 +50,7 @@ export class Game {
  moveAsBot(input:{from:string;to:string;promotion?:string}) {
   if(this.result)throw new Error('This game has ended.');
   const move=this.chess.move({from:input.from,to:input.to,promotion:input.promotion});
+  this.reviewSans.push(move.san);this.reviewFens.push(this.chess.fen());
   this.version++;this.touched=Date.now();this.offer=null;
   if(this.chess.isCheckmate())this.result=`${move.color==='w'?'White':'Black'} wins by checkmate`;
   else if(this.chess.isStalemate())this.result='Draw by stalemate';
@@ -58,6 +62,6 @@ export class Game {
  snapshot():Snapshot {
   const moves=this.chess.history({verbose:true}),last=moves.at(-1);
   const captures:Record<Color,string[]>={w:[],b:[]};for(const m of moves)if(m.captured)captures[m.color].push(m.captured);
-  return {id:this.id,gameId:this.gameId,version:this.version,mode:this.mode,fen:this.chess.fen(),turn:this.chess.turn(),players:Object.fromEntries(Object.entries(this.players).map(([c,p])=>[c,{name:p.name,connected:!!p.socket}])),history:this.chess.history(),last:last?{from:last.from,to:last.to}:undefined,captures,result:this.result,offer:this.offer,rematch:this.rematch,check:this.chess.isCheck(),demo:this.demo,difficulty:this.difficulty};
+  return {id:this.id,gameId:this.gameId,version:this.version,mode:this.mode,fen:this.chess.fen(),turn:this.chess.turn(),players:Object.fromEntries(Object.entries(this.players).map(([c,p])=>[c,{name:p.name,connected:!!p.socket}])),history:this.chess.history(),last:last?{from:last.from,to:last.to}:undefined,captures,result:this.result,offer:this.offer,rematch:this.rematch,check:this.chess.isCheck(),demo:this.demo,difficulty:this.difficulty,reviewStatus:this.reviewStatus,reviewSummary:this.reviewSummary};
  }
 }

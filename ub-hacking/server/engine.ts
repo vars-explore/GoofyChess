@@ -7,7 +7,8 @@ import { normalizeScore } from '../shared/reactions';
 
 type AnalyzeJob = { type: 'analyze'; key: string; before: string; after: string; resolve: (s: [Score, Score] | null) => void };
 type MoveJob = { type: 'move'; key: string; fen: string; difficulty: BotDifficulty; resolve: (m: string | null) => void };
-type Job = AnalyzeJob | MoveJob;
+type ReviewJob = { type: 'review'; key: string; fens: string[]; resolve: (s: Score[] | null) => void };
+type Job = AnalyzeJob | MoveJob | ReviewJob;
 // One process / one search at a time. Pending work is coalesced by room.
 export class Engine {
  private proc?:ChildProcessWithoutNullStreams;
@@ -53,11 +54,11 @@ export class Engine {
    this.send(cmd);
   });
  }
- private async evaluate(fen:string):Promise<Score> {
+ private async evaluate(fen:string,requestedMs?:number):Promise<Score> {
   const known=this.cache.get(fen);if(known) return known;
   let score:Score|undefined;
   this.send('position fen '+fen);
-  const ms=Math.min(1500,Math.max(100,Number(process.env.ANALYSIS_MS)||300));
+  const ms=Math.min(1500,Math.max(100,requestedMs??(Number(process.env.ANALYSIS_MS)||300)));
   await this.command('go movetime '+ms,line=>{
    const m=line.match(/score (cp|mate) (-?\d+)/);
    if(m&&!/lowerbound|upperbound/.test(line)) score={kind:m[1] as Score['kind'],value:Number(m[2])};
@@ -99,7 +100,11 @@ export class Engine {
    void this.drain();
   });
  }
- cancel(key:string) {this.queue.get(key)?.resolve(null as any);this.queue.delete(key);this.queue.delete(key+'-bot');}
+ review(key:string,fens:string[]):Promise<Score[]|null> {
+  if(this.closed)return Promise.resolve(null);
+  return new Promise(resolve=>{const jobKey=key+'-review';this.queue.get(jobKey)?.resolve(null as any);this.queue.set(jobKey,{type:'review',key:jobKey,fens,resolve});void this.drain();});
+ }
+ cancel(key:string) {this.queue.get(key)?.resolve(null as any);this.queue.delete(key);for(const suffix of ['-bot','-review']){this.queue.get(key+suffix)?.resolve(null as any);this.queue.delete(key+suffix);}}
  private async drain() {
   if(this.active) return;this.active=true;await this.boot;
   while(this.queue.size&&!this.closed) {
@@ -109,6 +114,10 @@ export class Engine {
     if(job.type==='move'){
      const move=await this.searchMove(job.fen,job.difficulty);
      job.resolve(move);
+    }else if(job.type==='review'){
+     const scores:Score[]=[];
+     for(const fen of job.fens)scores.push(await this.evaluate(fen,120));
+     job.resolve(scores);
     }else{
      const before=await this.evaluate(job.before);
      const after=await this.evaluate(job.after);

@@ -43,6 +43,7 @@ Copy `.env.example` to `.env` if you need to change the server port, engine anal
 
 - `STOCKFISH_PATH`: optional absolute path to a native Stockfish executable. Otherwise the npm WASM build is selected automatically.
 - `ANALYSIS_MS`: search time per position, bounded to 100–1500 ms; default 300 ms.
+- `GEMINI_API_KEY`: optional Gemini API key. Completed games use Stockfish evaluations to generate a recap when configured.
 - `ALLOWED_ORIGINS`: optional comma-separated exact browser origins. Same-origin requests are allowed by default. Include every intended frontend origin if separating frontend and backend.
 - `PORT`: backend port, default 3001. If changed during development, also update Vite's proxy target.
 
@@ -81,6 +82,7 @@ The move updates immediately. Visible board events may trigger a meme immediatel
 At most one main reaction is emitted per move per player. If an immediate event was shown, delayed analysis does not add a second reaction. Every result is checked against its room, game ID, and position version. Reconnect sends game state, not previous memes. Rapid play coalesces pending engine jobs and discards stale results.
 
 The browser never receives evaluation scores. The engine is not used as an opponent.
+After a game ends, Stockfish evaluates the recorded positions and Gemini turns the move-by-move scores into a short recap shown on the result card.
 
 ## Validation commands
 

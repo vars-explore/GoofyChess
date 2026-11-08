@@ -7,6 +7,7 @@ import { Server } from 'socket.io';
 import { Game } from './game';
 import { attachMedia } from './media';
 import { Engine } from './engine';
+import { summarizeWithGemini } from './review';
 import { boardEvent, catalog, evaluationEvent, reactionConfig, zone } from '../shared/reactions';
 import type { BotDifficulty, Color, Reaction, ReactionKind, Mode } from '../shared/types';
 
@@ -24,6 +25,29 @@ export function createApp(port=Number(process.env.PORT)||3001) {
  app.use(express.static(resolve('dist')));
  app.get('/{*path}',(_req,res)=>res.sendFile(resolve('dist/index.html')));
  function broadcast(game:Game){io.to(game.id).emit('state',game.snapshot());}
+ function startGameReview(game:Game){
+  if(!game.result||game.reviewStatus)return;
+  const gameId=game.gameId,allFens=game.reviewFens,allSans=game.reviewSans,result=game.result;
+  const stride=Math.max(1,Math.ceil(allSans.length/180));
+  const fens=[allFens[0],...allSans.flatMap((_,index)=>index%stride===stride-1||index===allSans.length-1?[allFens[index+1]]:[])];
+  const sans=allSans.filter((_,index)=>index%stride===stride-1||index===allSans.length-1);
+  if(!process.env.GEMINI_API_KEY){game.reviewStatus='unavailable';return;}
+  game.reviewStatus='pending';
+  void (async()=>{
+   try{
+    const scores=await engine.review(game.id,fens);
+    if(!scores)throw new Error('Stockfish review unavailable');
+    if(rooms.get(game.id)!==game||game.gameId!==gameId)return;
+    const summary=await summarizeWithGemini(sans,scores,result);
+    if(rooms.get(game.id)!==game||game.gameId!==gameId)return;
+    game.reviewSummary=summary;game.reviewStatus='ready';broadcast(game);
+   }catch(error){
+    if(rooms.get(game.id)!==game||game.gameId!==gameId)return;
+    console.error('Post-game recap unavailable:',error);
+    game.reviewStatus='unavailable';broadcast(game);
+   }
+  })();
+ }
  function react(game:Game,kind:ReactionKind,color:Color,square?:string,variant?:number){
   const player=game.players[color];if(!player?.socket)return;
   // Routine exchanges should not become a meme after every move.
@@ -77,6 +101,7 @@ export function createApp(port=Number(process.env.PORT)||3001) {
   try{
    const before=game.chess.fen();
    const move=game.moveAsBot(step);
+   if(game.result)startGameReview(game);
    broadcast(game);
    const event=boardEvent(game.chess,move,game.version);
    if(event){
@@ -144,7 +169,7 @@ export function createApp(port=Number(process.env.PORT)||3001) {
    game.players[color]!.socket=socket.id;return attach(game,color);
   });
   action('move',data=>{
-   const game=current(),before=game.chess.fen();const move=game.move(socket.id,data);broadcast(game);
+   const game=current(),before=game.chess.fen();const move=game.move(socket.id,data);if(game.result)startGameReview(game);broadcast(game);
    const event=boardEvent(game.chess,move,game.version);
    if(event){const variant=((game.lastCaption[event.kind+'w']??-1)+1)%catalog[event.kind].captions.length;for(const c of ['w','b'] as Color[])react(game,event.kind,c,event.square,variant);}
    const gameId=game.gameId,version=game.version,after=game.chess.fen();
@@ -183,6 +208,7 @@ export function createApp(port=Number(process.env.PORT)||3001) {
    }
    else if(data.action==='demo'&&game.mode==='demo'){game.reset(String(data.demo));baseline(game);}
    else throw new Error('This action is not available.');
+   if(game.result)startGameReview(game);
    broadcast(game);return {};
   });
   function detach(){const game=rooms.get(socket.data.room);if(game){const color=game.color(socket.id);if(color)game.players[color]!.socket=null;game.touched=Date.now();broadcast(game);socket.leave(game.id);}socket.data.room=undefined;}
