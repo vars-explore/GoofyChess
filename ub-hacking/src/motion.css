@@ -25,7 +25,7 @@
 @keyframes landing-flash{0%,55%{opacity:0;transform:scale(.5)}70%{opacity:.8}100%{opacity:0;transform:scale(1.25)}}
 @keyframes promotion-out{0%,55%{opacity:1}70%,100%{opacity:0;transform:scale(.4)}}
 @keyframes promotion-in{0%,55%{opacity:0;transform:scale(.3)}80%{opacity:1;transform:scale(1.16)}100%{opacity:1;transform:scale(1)}}
-@media(prefers-reduced-motion:reduce){.move-stage{display:none}.piece-in-transit{visibility:visible}}
+/* The app initializes reduced motion from the OS and owns the user override. */
 .reduced .move-stage{display:none}.reduced .piece-in-transit{visibility:visible}
 
 /* Short capture effects preserve the existing SVG pieces. */
@@ -43,3 +43,20 @@
 @keyframes bishop-beam{0%,55%{opacity:1;transform:scale(1)}75%{filter:brightness(3);transform:scale(.5,1.4)}100%{opacity:0;transform:scale(.02,1.8)}}
 @keyframes rook-collapse{0%,55%{opacity:1;transform:scale(1)}75%{transform:translateY(15%) scale(1.2,.6) rotate(-8deg)}100%{opacity:0;transform:translateY(40%) scale(1.4,.1)}}
 @keyframes queen-spin{0%,55%{opacity:1;transform:rotate(0) scale(1)}100%{opacity:0;transform:rotate(240deg) scale(.1);filter:drop-shadow(0 0 12px #e7b5ff)}}
+
+.capture-weapon{z-index:5;transform:rotate(var(--attack-angle))}
+.combat-effect{width:160%;height:160%;overflow:visible;pointer-events:none}
+.capture-weapon .combat-effect{animation:weapon-appear var(--duration) both}
+.weapon-recoil{transform-origin:50% 50%;animation:weapon-kick var(--duration,1800ms) both}
+.muzzle-flash,.bullet-trail{animation:muzzle-burst var(--duration,1800ms) both}
+.knife-swipe{transform-origin:50% 50%;animation:knife-cut var(--duration,1800ms) both}
+.slash-arc{animation:muzzle-burst var(--duration,1800ms) both}
+.flame-orb{animation:fireball-flight var(--duration,1800ms) both}
+.beam-ray{animation:muzzle-burst var(--duration,1800ms) both}
+.combat-impact{transform-box:fill-box;transform-origin:center;animation:combat-impact var(--duration,1800ms) both}
+@keyframes weapon-appear{0%,25%{opacity:0}35%,80%{opacity:1}100%{opacity:0}}
+@keyframes weapon-kick{0%,45%{transform:translateX(0)}55%{transform:translateX(-12px) rotate(-9deg)}75%,100%{transform:none}}
+@keyframes muzzle-burst{0%,45%{opacity:0}50%,65%{opacity:1}80%,100%{opacity:0}}
+@keyframes knife-cut{0%,30%{transform:translate(-12px,-12px) rotate(-60deg);opacity:0}45%{opacity:1}70%,100%{transform:translate(12px,12px) rotate(35deg)}}
+@keyframes fireball-flight{0%,25%{opacity:0;transform:translateX(-65px) scale(.2)}45%{opacity:1}70%{transform:translateX(12px) scale(1.2);opacity:1}100%{transform:translateX(25px) scale(1.5);opacity:0}}
+@keyframes combat-impact{0%,55%{opacity:0;transform:scale(.2)}70%{opacity:1}100%{opacity:0;transform:scale(1.7)}}

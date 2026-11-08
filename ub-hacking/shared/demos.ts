@@ -1,4 +1,7 @@
 export const demos:Array<{id:string;name:string;label:string;fen:string;move:string;hint:string;setup?:string[];event?:string}> = [
+ {id:'fireball',name:'Royal firepower',label:'Queen fireball capture',fen:'4k3/8/8/3r4/8/8/8/3QK3 w - - 0 1',move:'Qxd5',hint:'Move the queen from d1 to d5 to launch a fireball.',event:'firstblood'},
+ {id:'ninja',name:'Silent knight',label:'Knight knife capture',fen:'4k3/8/8/3r4/8/2N5/8/4K3 w - - 0 1',move:'Nxd5',hint:'Move the knight from c3 to d5 for a quick knife strike.',event:'firstblood'},
+
  {id:'castle',name:'Your bodyguard has arrived',label:'Castling',fen:'4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1',move:'O-O',hint:'Move the king from e1 to g1. Watch the rook escort it.',event:'castle'},
  {id:'fork',name:'Two problems. One horse.',label:'Knight fork',fen:'3k3r/8/8/6N1/8/8/8/4K3 w - - 0 1',move:'Nf7+',hint:'Move the knight from g5 to f7.',event:'fork'},
  {id:'doublecheck',name:'Double trouble',label:'Double check',fen:'4k3/8/8/8/8/8/4B3/K3R3 w - - 0 1',move:'Bb5+',hint:'Move the bishop from e2 to b5.',event:'doublecheck'},

@@ -1,4 +1,6 @@
 import { useEffect,useRef } from 'react';
+import { CombatEffect } from './CombatEffect';
+import './motion.css';
 import { reactionSound,stopReactionSound } from './audio';
 // Original animated vector anime duel. Player names remain escaped React text.
 function Fighter({rival=false}:{rival?:boolean}){
@@ -9,6 +11,7 @@ function Fighter({rival=false}:{rival?:boolean}){
   <path d="m100 199-32-35 22-44-16-42 48 12 1-52 44 26 26-58 29 52 55-35-3 55 51-6-20 50 28 40-39 56-8-61-32 28-7-63-39 59-9-67-36 62-12-31-17 50Z" fill={rival?'#171a32':'#dce9fa'}/>
   <path d="m145 205 40 8-12 15-25-6m66-8 42-17-10 24-26 8" fill="white"/>
   <path d="m163 212 5 12m65-14 2 13" stroke={rival?'#f45e85':'#14bad9'} strokeWidth="9"/>
+  <path d="M129 231 276 218 262 277 201 294 141 275Z" fill="#202b42"/><path d="M125 171 279 158 280 180 128 193Z" fill="#c45042"/><path d="m279 171 42 25-12 8-32-19" fill="#c45042"/>
   <path d="m142 194 44 9m28-4 45-14m-59 41-9 26 13 3m-24 20 40-2" fill="none"/>
   <path d="m90 345 65-28 45 66 48-68 70 35-45 72H132Z" fill={rival?'#24233e':'#28394d'}/>
   <path d="m146 324 22 150m78-150-19 150" stroke={rival?'#ed5d79':'#b5f8ff'} strokeWidth="8"/>
@@ -31,6 +34,7 @@ export function CheckmateScene({winner,loser,reduced,onClose}:{winner:string;los
   <div className="anime-grain"/><div className="speed-lines"/>
   <div className="anime-panel hero-panel"><Fighter/><div className="fighter-name"><small>THE FINAL MOVE</small><strong>{winner}</strong></div></div>
   <div className="anime-panel rival-panel"><Fighter rival/><div className="fighter-name"><small>NO ESCAPE</small><strong>{loser}</strong></div></div>
+  <div className="finale-fireball"><CombatEffect attack="fireball"/></div><div className="finale-ninja"><CombatEffect attack="knife"/></div>
   <div className="anime-versus">VS</div><div className="anime-slash"/>
   <div className="anime-verdict"><span>THE KING HAS FALLEN</span><h2>CHECK<span>MATE</span></h2><p><strong>{winner}</strong> defeats <strong>{loser}</strong></p><small>One board. One survivor.</small></div>
   <button ref={button} className="skip-scene" onClick={onClose}>Back to the board &rarr;</button>
