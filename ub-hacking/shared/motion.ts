@@ -22,7 +22,7 @@ export function describeMotion(previous:Snapshot|null,next:Snapshot,dragged=fals
    promotion:move.promotion,enPassant,dragged,
    escape:escaping&&move.piece==='k',
    rook:castle?{from:(move.isKingsideCastle()?'h':'a')+rank,to:(move.isKingsideCastle()?'f':'d')+rank}:null,
-   duration:dragged?180:move.promotion?MAX_MOVE_DURATION:enPassant?560:castle?480:move.piece==='n'?440:280,
+   duration:move.captured?MAX_MOVE_DURATION:dragged?180:move.promotion?MAX_MOVE_DURATION:enPassant?560:castle?480:move.piece==='n'?440:280,
   };
  }catch{return null;}
 }

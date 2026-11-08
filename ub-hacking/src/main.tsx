@@ -63,9 +63,12 @@ function App(){
    const current=stateRef.current;
    if(!current||current.gameId!==next.gameId||current.version!==next.version||!prefs.current.enabled)return;
    if(timer.current)clearTimeout(timer.current);setReaction(next);
-   if(next.kind==='mate'){setFinale(checkmateNames(current));return;}
    if(!prefs.current.muted)reactionSound(reactionSounds[next.kind],next.duration);
-   timer.current=setTimeout(()=>setReaction(null),next.duration);
+   timer.current=setTimeout(()=>{
+    timer.current=null;setReaction(null);
+    const latest=stateRef.current;
+    if(next.kind==='mate'&&prefs.current.enabled&&latest?.gameId===next.gameId&&latest.version===next.version)setFinale(checkmateNames(latest));
+   },next.duration);
   };
   const onState=(next:Snapshot)=>{
    const old=stateRef.current;
@@ -75,7 +78,7 @@ function App(){
    if(changed)cancelMotion();
    stateRef.current=next;setState(next);setSelected(null);setPromotion(null);
    if(changed){setReaction(null);stopReactionSound();if(timer.current)clearTimeout(timer.current);}
-   if(old?.gameId!==next.gameId)setFinale(null);
+   if(changed)setFinale(null);
    if(movement&&!prefs.current.reduced){
     motionRef.current=movement;setMotion(movement);
     landingTimer.current=setTimeout(()=>{
@@ -93,7 +96,7 @@ function App(){
    showReaction(next);
   };
   const onDisconnect=()=>{cancelMotion();setConnected(false);};
-  const replaced=()=>{cancelMotion();saveSeat(null);setState(null);setError('This seat was opened in another tab.');};
+  const replaced=()=>{cancelMotion();if(timer.current)clearTimeout(timer.current);setReaction(null);setFinale(null);stopReactionSound();saveSeat(null);setState(null);setError('This seat was opened in another tab.');};
   socket.on('connect',onConnect);socket.on('disconnect',onDisconnect);socket.on('state',onState);socket.on('reaction',onReaction);socket.on('replaced',replaced);socket.connect();
   return()=>{socket.off('connect',onConnect);socket.off('disconnect',onDisconnect);socket.off('state',onState);socket.off('reaction',onReaction);socket.off('replaced',replaced);socket.disconnect();cancelMotion();if(timer.current)clearTimeout(timer.current);};
  },[]);
@@ -164,7 +167,7 @@ function App(){
    </aside></div>
    <section className="feature-strip"><div><span className="feature-number">01</span><div><strong>Make your move.</strong><p>Same rules. Questionable execution.</p></div></div><div><span className="feature-number">02</span><div><strong>The board reacts.</strong><p>Memes that meet the moment.</p></div></div><div><span className="feature-number">03</span><div><strong>Try not to take it personally.</strong><p>It’s only a game. Probably.</p></div></div></section>
   </main><footer><span>♞ blunder theater</span><span>Made for bad moves and good company.</span><span>EST. 2026 <span className="footer-star">✳</span></span></footer>
-  {settings&&<div className="modal-backdrop" onClick={()=>setSettings(false)}><section className="settings card" role="dialog" aria-modal="true" aria-label="Settings" onClick={e=>e.stopPropagation()}><div className="dialog-title"><h2>Set the vibe.</h2><button className="icon-button" aria-label="Close settings" onClick={()=>setSettings(false)}><X size={20}/></button></div><label><span>Sound effects<small>Short sounds. Maximum disrespect.</small></span><input type="checkbox" checked={!muted} onChange={e=>{unlockAudio();setMuted(!e.target.checked);}}/></label><label><span>Volume</span><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>setVolume(Number(e.target.value))}/></label><label><span>Meme reactions<small>The whole reason we’re here.</small></span><input type="checkbox" checked={enabled} onChange={e=>{setEnabled(e.target.checked);setReaction(null);setFinale(null);stopReactionSound();}}/></label><label><span>Reduced motion<small>All the jokes. Less movement.</small></span><input type="checkbox" checked={reduced} onChange={e=>setReduced(e.target.checked)}/></label><button className="primary" onClick={()=>setSettings(false)}>Good to go <Check size={18}/></button></section></div>}
+  {settings&&<div className="modal-backdrop" onClick={()=>setSettings(false)}><section className="settings card" role="dialog" aria-modal="true" aria-label="Settings" onClick={e=>e.stopPropagation()}><div className="dialog-title"><h2>Set the vibe.</h2><button className="icon-button" aria-label="Close settings" onClick={()=>setSettings(false)}><X size={20}/></button></div><label><span>Sound effects<small>Short sounds. Maximum disrespect.</small></span><input type="checkbox" checked={!muted} onChange={e=>{unlockAudio();setMuted(!e.target.checked);}}/></label><label><span>Volume</span><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>setVolume(Number(e.target.value))}/></label><label><span>Meme reactions<small>The whole reason we’re here.</small></span><input type="checkbox" checked={enabled} onChange={e=>{setEnabled(e.target.checked);if(timer.current)clearTimeout(timer.current);pendingReaction.current=null;setReaction(null);setFinale(null);stopReactionSound();}}/></label><label><span>Reduced motion<small>All the jokes. Less movement.</small></span><input type="checkbox" checked={reduced} onChange={e=>setReduced(e.target.checked)}/></label><button className="primary" onClick={()=>setSettings(false)}>Good to go <Check size={18}/></button></section></div>}
   {confirm&&<div className="modal-backdrop"><section className="settings card" role="dialog" aria-modal="true" aria-label={confirm==='leave'?'Leave table':'Resign game'}><h2>{confirm==='leave'?'Leaving so soon?':'Call it a day?'}</h2><p>{confirm==='leave'?'Your friend will see you as disconnected.':'Resigning ends the game and gives your opponent the win.'}</p><button className="primary" onClick={()=>{if(confirm==='leave')void leave();else{void control('resign');setConfirm(null);}}}>{confirm==='leave'?'Leave the table':'Resign'}</button><button className="secondary" onClick={()=>setConfirm(null)}>Keep playing</button></section></div>}
   {finale&&enabled&&<CheckmateScene winner={finale.winner} loser={finale.loser} reduced={reduced} onClose={()=>{setFinale(null);setReaction(null);}}/>}
  </div>;

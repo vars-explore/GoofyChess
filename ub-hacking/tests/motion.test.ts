@@ -41,3 +41,10 @@ test('reconnects, repeated snapshots, resets and mismatched boards never replay 
  assert.equal(describeMotion(previous,{...next,fen:previous.fen}),null);
  assert.equal(describeMotion(previous,{...next,version:next.version+1}),null);
 });
+
+test('captures reserve time for combat, including dragged captures',()=>{
+ const {previous,next,motion}=snapshots('4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1','exd5');
+ assert.equal(motion.duration,650);
+ assert.equal(describeMotion(previous,next,true)?.duration,650);
+ assert.equal(motion.captured,'p');
+});
