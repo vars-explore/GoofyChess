@@ -1,92 +1,110 @@
 # Goofy Chess
 
-Live chess with hidden Stockfish analysis, animated meme reactions, and optional sound effects. No commentary, engine scores, or best-move arrows are shown to players.
+Goofy Chess is a browser chess game where real board events and hidden Stockfish analysis trigger playful reactions. Play a friend online, pass the device, face the Stockfish bot, or try prepared positions in Meme Lab. After a game, Stockfish reviews the moves and Gemini writes a recap you can read or hear.
 
-## Run locally
+## Features
 
-Requires **Node.js 22.12+** (Node 24 recommended) and an internet connection for the initial install.
+- **Online friend matches:** create a room, share an invite, and reconnect to a saved seat.
+- **Pass and play:** take turns on one device.
+- **Stockfish bot:** choose Easy, Medium, Hard, or Expert and play as either color.
+- **Meme Lab:** explore prepared positions and try suggested moves. See [SCENARIOS.md](SCENARIOS.md).
+- **Live reactions:** board-event and engine-evaluation reactions, animated memes, combat effects, and a checkmate finale.
+- **Game controls:** promotion selection, board flip, move history, captured pieces, draw offers, resignations, resets, and rematches.
+- **Post-game recap:** Stockfish evaluates the game and Gemini summarizes the result and notable swings. Listen to the recap with speech playback.
+- **Voice moves:** speak a legal chess move using the microphone control.
+- **User controls:** sound volume, mute, reactions on/off, and reduced motion.
+
+No account is required. Engine scores and best-move analysis are never shown during a game.
+
+## Requirements
+
+- Node.js **22.12 or later** and npm
+- Internet access for initial dependency installation, Gemini recaps, voice features, and uncached remote media
+- Optional API credentials: `GEMINI_API_KEY` for recaps and `ELEVENLABS_API_KEY` for speech playback and voice move transcription
+
+Stockfish is supplied by the `stockfish` npm package and runs locally in a Node child process. The game and bot can still run without Gemini; voice features need ElevenLabs credentials and microphone access over HTTPS or localhost.
+
+## Run in development
+
+From this repository directory:
 
 ```powershell
-cd "D:\Ub hacking"
-npm install
+npm ci
 npm run dev
 ```
 
-Open **http://localhost:5173**. The Node server runs on port 3001; Vite proxies its Socket.IO connection. The `stockfish` npm dependency supplies the real lite single-threaded WASM engine, executed in a separate Node child process. No API key or external engine service is needed.
+Open **http://localhost:5173**. Vite serves the React app and proxies Socket.IO and `/api` requests to the Node server on port **3001**. The Vite server listens on all network interfaces; access from another device depends on the host firewall and accepted origin.
 
-For a production build on a Node host:
+To play online, create a room and open its invite in a separate browser profile, incognito window, or another device. A second tab may share session storage in some browsers, so use a separate browser context for the second seat.
+
+## Run in production mode
 
 ```powershell
 npm run build
 npm start
 ```
 
-Open **http://localhost:3001**. The Node process serves the built frontend and multiplayer connections together. Use a persistent Node host with WebSocket support; uploading only the static frontend will not support games. Public deployment has not been configured.
-
-### Play with a friend
-
-Create a room, copy the invite, and open it in a different browser or an incognito window. A second tab can share copied session storage in some browsers; use a separate browser context for a separate player.
-
-Localhost links work only on the same computer. For another device on the same Wi-Fi, open the site using the host computer's LAN IP and port 5173, then create/copy the invite from that address. Your firewall must allow the development server. Internet play requires deploying the Node server on a reachable host with HTTPS.
-
-### Demo
-
-Choose **The meme lab** or **Skip to the funny part**. Select a scenario and make its suggested move. Each position can be reset. The Stockfish scenario deliberately abandons a queen: move the king from e1 to f1 and allow time for the hidden analysis. Evaluation-dependent reactions are conditional on the actual engine result, never faked.
-
-**Pass & play** lets two people use the same device; it also uses the local server and background engine. Analysis reactions in this mode use the mover's perspective.
-
-Sound is muted initially. Enable it using the speaker button or settings. The current sounds are short synthesized tones, so no sound downloads are required.
+Open **http://localhost:3001**. Express serves the built frontend and multiplayer server together. Deploy the Node server on a persistent host that supports WebSockets. Static hosting of `dist/` alone does not support games. Configure HTTPS and allowed browser origins when running behind a reverse proxy.
 
 ## Configuration
 
-Copy `.env.example` to `.env` if you need to change the server port, engine analysis time, allowed browser origins, or native engine location. Values are loaded by the npm scripts.
+Copy `.env.example` to `.env` and configure only the features you need. Keep credentials in ignored local environment files or your deployment host's secret manager; never commit API keys.
 
-- `STOCKFISH_PATH`: optional absolute path to a native Stockfish executable. Otherwise the npm WASM build is selected automatically.
-- `ANALYSIS_MS`: search time per position, bounded to 100–1500 ms; default 300 ms.
-- `GEMINI_API_KEY`: optional Gemini API key. Completed games use Stockfish evaluations to generate a recap when configured.
-- `ELEVENLABS_API_KEY`: optional ElevenLabs API key. Run `npx -y @elevenlabs/cli@latest onboard init` to configure it in the gitignored `.env.local`; the server uses it for recap speech and voice-move transcription. The key stays server-side.
-- `ALLOWED_ORIGINS`: optional comma-separated exact browser origins. Same-origin requests are allowed by default. Include every intended frontend origin if separating frontend and backend.
-- `PORT`: backend port, default 3001. If changed during development, also update Vite's proxy target.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `3001` | Node server port. If changed in development, update the Vite proxy target in `vite.config.ts`. |
+| `ANALYSIS_MS` | `300` | Live Stockfish evaluation time per position, clamped to 100–1500 ms. Post-game review uses its own short searches. |
+| `STOCKFISH_PATH` | bundled Stockfish.js WASM | Optional path to a native Stockfish executable. |
+| `GEMINI_API_KEY` | unset | Enables Gemini post-game recaps. Without it, games still work and the recap is unavailable. |
+| `ELEVENLABS_API_KEY` | unset | Enables recap speech playback and voice-move transcription. Use `npx -y @elevenlabs/cli@latest onboard init` to configure it in the gitignored `.env.local`. |
+| `ALLOWED_ORIGINS` | same-host origin check | Optional comma-separated list of exact allowed browser origins, e.g. `https://chess.example.com,https://www.chess.example.com`. Do not add spaces around entries. |
 
-## Meme assets
+Gemini receives the game result, algebraic moves, and sampled Stockfish evaluations. Player names and seat tokens are not included. Long games are sampled at up to 180 move positions, including the final position.
 
-The first version uses animated emoji/text meme cards. These are intentional local placeholders, not downloaded recognizable meme GIFs.
+## How it works
 
-Add images/GIFs to `public/memes/` and set the optional `image` field on the relevant entry in `shared/reactions.ts`, for example:
+### Browser and server
 
-```ts
-check: {
-  emoji: '😰',
-  captions: ['THIS IS FINE.', 'WHY IS IT HOT IN HERE?'],
-  tone: 'bad',
-  image: '/memes/sweating.gif',
-},
-```
+The frontend is React and TypeScript, built by Vite. It uses `chess.js` to preview legal destinations and render the position. The Node server is authoritative: it validates submitted moves with `chess.js`, updates the room, and broadcasts snapshots through Socket.IO.
 
-Missing images fall back to the card. Three tone families are synthesized in `src/audio.ts`. Replace or extend that module if you want recorded sound assets; the existing mute, volume, and user-interaction controls should remain.
+Moves include a game ID and position version. The server rejects stale moves, invalid seats, out-of-turn moves, and moves made before both online players connect. Seat recovery uses a server-held token stored for that browser session.
 
-Reaction thresholds, cooldowns, caption variants, duration, and ordinary-capture frequency live in `shared/reactions.ts`. Event precedence is defined in `boardEvent()`.
+### Stockfish and reactions
 
-## Architecture
+`server/engine.ts` starts a lightweight, single-threaded Stockfish process and communicates with it using UCI commands. The engine serializes searches, caches scores, and coalesces obsolete queued work by room. Bot difficulty uses different Stockfish settings; if the engine is unavailable, the bot can choose a legal fallback move.
 
-- `server/game.ts`: authoritative chess state, seat identity, legal moves, game results, public snapshots.
-- `server/index.ts`: Socket.IO rooms, reconnects, controls, and reaction delivery.
-- `server/engine.ts`: one Stockfish child process, bounded searches, position cache, and a latest-pending-job queue per room.
-- `shared/reactions.ts`: board-event detection and evaluation-to-meme rules.
-- `shared/demos.ts`: legal-position presets and suggested moves.
-- `src/main.tsx`: room lobby, board interactions, settings, and reactions.
-- `src/Piece.tsx`: locally drawn SVG chess pieces.
-- `src/audio.ts`: short synthesized sound effects.
+`shared/reactions.ts` detects board events such as checkmate, forks, promotions, captures, and castling. It maps evaluation changes to reactions using White-perspective scores, separate mate scores, thresholds, and cooldowns. The server emits at most one main reaction per move for each player. Stale analysis results are discarded by room, game ID, and position version.
 
-The move updates immediately. Visible board events may trigger a meme immediately. Stockfish analyzes before/after positions silently, normalizes scores to White's perspective, and chooses separate reactions for each player. Mate scores stay separate from centipawns. Winning/losing state has different entry and exit thresholds to prevent flicker.
+### Post-game recap and voice
 
-At most one main reaction is emitted per move per player. If an immediate event was shown, delayed analysis does not add a second reaction. Every result is checked against its room, game ID, and position version. Reconnect sends game state, not previous memes. Rapid play coalesces pending engine jobs and discards stale results.
+When a game ends, the server evaluates the recorded positions and sends the result, moves, and score samples to Gemini (`gemini-3-flash-preview`). The result card shows a pending state, then the recap or an unavailable message. Recaps are included in room snapshots for reconnecting players. Resetting or starting a rematch clears the previous recap.
 
-The browser never receives evaluation scores. The engine is not used as an opponent.
-After a game ends, Stockfish evaluates the recorded positions and Gemini turns the move-by-move scores into a short recap shown on the result card.
-Use the speaker button to listen to a recap or the microphone button to speak a legal chess move. Both voice features require `ELEVENLABS_API_KEY` and microphone access over HTTPS or localhost.
+ElevenLabs powers recap speech and voice-move transcription when configured. API keys stay on the server. Microphone access requires HTTPS or localhost and browser permission.
 
-## Validation commands
+### Media and sound
+
+`shared/media.ts` maps reaction kinds to meme and sound sources. `/api/media/:id` serves bundled local sounds or fetches configured remote assets, validates their media type and size, and caches successful downloads under `.media-cache/`. Meme catalog URLs may refresh from Imgflip when the server starts. Remote media can fall back to its source URL if fetching or caching fails.
+
+Move sounds are synthesized in the browser with Web Audio. Reaction sounds use configured audio assets. Browsers require a user interaction before audio playback can begin. Add custom meme files under `public/memes/` and reference them from `shared/reactions.ts`; missing images fall back to the reaction card. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistribution.
+
+## Repository map
+
+| Path | Responsibility |
+| --- | --- |
+| `src/main.tsx` | React app, lobby, board input, room controls, settings, and reactions |
+| `src/Piece.tsx`, `src/MoveAnimation.tsx`, `src/CombatEffect.tsx`, `src/CheckmateScene.tsx` | Chess-piece SVGs, move and combat effects, and checkmate finale |
+| `src/audio.ts`, `src/voice.ts`, `src/Meme.tsx` | Browser audio, voice controls, and meme presentation |
+| `server/index.ts` | Express app, Socket.IO rooms, reconnects, bot turns, and reaction delivery |
+| `server/game.ts` | Authoritative game state, legal moves, results, and snapshots |
+| `server/engine.ts` | Stockfish process, search queue, cache, bot moves, and review evaluations |
+| `server/review.ts` | Gemini recap and voice service integration |
+| `server/media.ts` | Local/remote media serving, validation, and cache |
+| `shared/reactions.ts` | Board-event priority and evaluation-to-reaction rules |
+| `shared/demos.ts` | Scenario positions, setup moves, and hints |
+| `shared/types.ts` | Shared game, socket, and reaction types |
+| `tests/` | Chess rules, multiplayer, bot, reaction, scenario, motion, review, voice, and engine tests |
+
+## Validation
 
 ```powershell
 npm test
@@ -94,32 +112,20 @@ npm run test:engine
 npm run build
 ```
 
-`npm test` covers reaction logic, chess rules and demo positions, server move validation, multiplayer synchronization, seat recovery, draw offers, and rematches. `npm run test:engine` requires the actual installed engine and tests the queen-losing scenario.
+`npm test` runs the unit and multiplayer integration tests. `npm run test:engine` launches Stockfish and checks an engine evaluation; it requires the engine dependency. `npm run build` runs TypeScript checking and builds the production frontend.
 
-The pure reaction tests also run without installing packages on Node 24:
+## Limits
 
-```powershell
-node --experimental-strip-types --test tests/reactions.test.ts
-```
+- Rooms and recaps are stored in process memory. A server restart clears them; run one server process rather than unshared replicas.
+- Disconnected rooms expire after two hours. The server retains up to 100 rooms.
+- Stockfish uses one analysis process. Under load, obsolete reaction work may be skipped to keep gameplay responsive.
+- Threefold repetition and the fifty-move condition are automatically adjudicated as draws instead of requiring a player claim.
+- There are no clocks, matchmaking, accounts, persistent game records, spectators, or post-game highlight reels.
+- Touch users should use click-to-move.
+- If Stockfish is unavailable, legal gameplay and immediate board-event reactions continue. The bot can use fallback moves; evaluation-based reactions and Stockfish-backed recaps are unavailable.
+- Gemini and ElevenLabs features depend on valid credentials, model/service availability, network connectivity, and quota.
 
-### Verification performed during creation
+## Scenarios and third-party notices
 
-- Passed: 8 dependency-free reaction tests.
-- Passed: native TypeScript syntax transformation for server, shared, and test files.
-- Blocked: npm dependency installation failed with `ENOTFOUND registry.npmjs.org` in the build environment.
-- Therefore not yet verified: full type checking, frontend build/rendering, chess/demo tests, two-browser interaction, multiplayer integration tests, and real Stockfish execution. Run the commands above after installation; this source is not being represented as a fully tested deployment.
-
-## MVP limitations
-
-- Rooms live in one server's memory. Restarting clears them; use a single process rather than multiple replicas.
-- Inactive disconnected rooms expire after two hours; at most 100 rooms are retained.
-- A single analysis process bounds CPU use. Under load it may skip obsolete reactions rather than slow the game.
-- Threefold repetition and the fifty-move condition are automatically adjudicated as draws for this casual MVP, rather than requiring a formal player claim.
-- No clocks, matchmaking, account system, spectators, AI opponent, persistent records, or postgame highlight reel.
-- Native browser drag/drop and click-to-move are provided; touch users should use click-to-move.
-- Google Fonts are optional visual enhancements; system fonts work if unavailable.
-- If Stockfish fails, gameplay and immediate board reactions continue. The server logs the problem, and `/api/health` reports engine readiness. Evaluation-based reactions are unavailable until the engine is restarted successfully.
-
-## Third-party notices
-
-See `THIRD_PARTY_NOTICES.md` before redistributing the app with dependencies or engine files.
+- [SCENARIOS.md](SCENARIOS.md) describes reaction triggers, precedence, and demo examples.
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists dependency licenses and redistribution notes.
