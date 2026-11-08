@@ -2,10 +2,12 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { readdirSync } from 'node:fs';
-import type { Score } from '../shared/types';
+import type { BotDifficulty, Score } from '../shared/types';
 import { normalizeScore } from '../shared/reactions';
 
-type Job = {key:string;before:string;after:string;resolve:(s:[Score,Score]|null)=>void};
+type AnalyzeJob = { type: 'analyze'; key: string; before: string; after: string; resolve: (s: [Score, Score] | null) => void };
+type MoveJob = { type: 'move'; key: string; fen: string; difficulty: BotDifficulty; resolve: (m: string | null) => void };
+type Job = AnalyzeJob | MoveJob;
 // One process / one search at a time. Pending work is coalesced by room.
 export class Engine {
  private proc?:ChildProcessWithoutNullStreams;
@@ -66,18 +68,54 @@ export class Engine {
   if(this.cache.size>1000) this.cache.delete(this.cache.keys().next().value!);
   this.cache.set(fen,normalized);return normalized;
  }
+ private async searchMove(fen:string,difficulty:BotDifficulty):Promise<string|null> {
+  const settings:Record<BotDifficulty,{skill:number;depth:number;ms:number}>={
+   easy:{skill:0,depth:2,ms:200},
+   medium:{skill:6,depth:5,ms:400},
+   hard:{skill:14,depth:9,ms:750},
+   expert:{skill:20,depth:14,ms:1200},
+  };
+  const cfg=settings[difficulty]||settings.medium;
+  this.send('position fen '+fen);
+  this.send('setoption name Skill Level value '+cfg.skill);
+  let best:string|null=null;
+  await this.command(`go depth ${cfg.depth} movetime ${cfg.ms}`,line=>{
+   const m=line.match(/^bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+   if(m)best=m[1];
+   return line.startsWith('bestmove');
+  },cfg.ms+4000);
+  return best;
+ }
  analyze(key:string,before:string,after:string):Promise<[Score,Score]|null> {
   if(this.closed) return Promise.resolve(null);
-  return new Promise(resolve=>{this.queue.get(key)?.resolve(null);this.queue.set(key,{key,before,after,resolve});void this.drain();});
+  return new Promise(resolve=>{this.queue.get(key)?.resolve(null as any);this.queue.set(key,{type:'analyze',key,before,after,resolve});void this.drain();});
  }
- cancel(key:string) {this.queue.get(key)?.resolve(null);this.queue.delete(key);}
+ bestMove(key:string,fen:string,difficulty:BotDifficulty='medium'):Promise<string|null> {
+  if(this.closed) return Promise.resolve(null);
+  return new Promise(resolve=>{
+   const jobKey=key+'-bot';
+   this.queue.get(jobKey)?.resolve(null as any);
+   this.queue.set(jobKey,{type:'move',key:jobKey,fen,difficulty,resolve});
+   void this.drain();
+  });
+ }
+ cancel(key:string) {this.queue.get(key)?.resolve(null as any);this.queue.delete(key);this.queue.delete(key+'-bot');}
  private async drain() {
   if(this.active) return;this.active=true;await this.boot;
   while(this.queue.size&&!this.closed) {
    const job=this.queue.values().next().value!;this.queue.delete(job.key);
-   if(!this.ready){job.resolve(null);continue;}
-   try {const before=await this.evaluate(job.before);const after=await this.evaluate(job.after);job.resolve([before,after]);}
-   catch(e){this.error=String(e);console.error('Analysis disabled:',this.error);this.ready=false;this.proc?.kill();job.resolve(null);}
+   if(!this.ready){job.resolve(null as any);continue;}
+   try {
+    if(job.type==='move'){
+     const move=await this.searchMove(job.fen,job.difficulty);
+     job.resolve(move);
+    }else{
+     const before=await this.evaluate(job.before);
+     const after=await this.evaluate(job.after);
+     job.resolve([before,after]);
+    }
+   }
+   catch(e){this.error=String(e);console.error('Engine operation failed:',this.error);this.ready=false;this.proc?.kill();job.resolve(null as any);}
   }
   this.active=false;
  }

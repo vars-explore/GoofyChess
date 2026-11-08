@@ -7,7 +7,7 @@ import { Game } from './game';
 import { attachMedia } from './media';
 import { Engine } from './engine';
 import { boardEvent, catalog, evaluationEvent, reactionConfig, zone } from '../shared/reactions';
-import type { Color, Reaction, ReactionKind, Mode } from '../shared/types';
+import type { BotDifficulty, Color, Reaction, ReactionKind, Mode } from '../shared/types';
 
 export function createApp(port=Number(process.env.PORT)||3001) {
  const app=express(),http=createServer(app),engine=new Engine(),rooms=new Map<string,Game>();
@@ -33,6 +33,56 @@ export function createApp(port=Number(process.env.PORT)||3001) {
  function baseline(game:Game){const id=game.gameId;void engine.analyze(game.id,game.chess.fen(),game.chess.fen()).then(scores=>{
   if(scores&&game.gameId===id&&game.version===0)for(const c of ['w','b'] as Color[])game.zones[c]=zone(scores[1],c);
  });}
+ function getBotFallbackMove(game:Game,difficulty:BotDifficulty='medium'):{from:string;to:string;promotion?:string}|null {
+  const moves=game.chess.moves({verbose:true});
+  if(!moves.length)return null;
+  if(difficulty==='easy'){
+   const chosen=moves[Math.floor(Math.random()*moves.length)];
+   return {from:chosen.from,to:chosen.to,promotion:chosen.promotion};
+  }
+  const tactical=moves.filter(m=>m.captured||m.san.includes('+'));
+  const pool=tactical.length?tactical:moves;
+  const chosen=pool[Math.floor(Math.random()*pool.length)];
+  return {from:chosen.from,to:chosen.to,promotion:chosen.promotion};
+ }
+ async function triggerBotMove(game:Game) {
+  if(game.mode!=='bot'||game.result)return;
+  const botColor=(['w','b'] as Color[]).find(c=>!game.players[c]?.socket);
+  if(!botColor||game.chess.turn()!==botColor)return;
+  const gameId=game.gameId,version=game.version;
+  await new Promise(r=>setTimeout(r,550));
+  if(rooms.get(game.id)!==game||game.gameId!==gameId||game.version!==version||game.result)return;
+  const fen=game.chess.fen();
+  const diff=game.difficulty||'medium';
+  let uci=(diff==='easy'&&Math.random()<0.35)?null:await engine.bestMove(game.id,fen,diff);
+  let step:{from:string;to:string;promotion?:string}|null=null;
+  if(uci&&/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)){
+   step={from:uci.slice(0,2),to:uci.slice(2,4),promotion:uci[4]||undefined};
+  }else{
+   step=getBotFallbackMove(game,diff);
+  }
+  if(!step)return;
+  try{
+   const before=game.chess.fen();
+   const move=game.moveAsBot(step);
+   broadcast(game);
+   const event=boardEvent(game.chess,move,game.version);
+   if(event){
+    const variant=((game.lastCaption[event.kind+'w']??-1)+1)%catalog[event.kind].captions.length;
+    for(const c of ['w','b'] as Color[])react(game,event.kind,c,event.square,variant);
+   }
+   const versionAfter=game.version,after=game.chess.fen();
+   if(!game.result)void engine.analyze(game.id,before,after).then(scores=>{
+    if(!scores||rooms.get(game.id)!==game||game.gameId!==gameId||game.version!==versionAfter||game.result)return;
+    for(const c of ['w','b'] as Color[]){
+     const perspective=c;
+     const kind=evaluationEvent(scores[0],scores[1],perspective,game.zones[perspective]);
+     game.zones[perspective]=zone(scores[1],perspective,game.zones[perspective]);
+     if(!event&&kind&&Date.now()-game.lastReaction[c]>reactionConfig.cooldownMs)react(game,kind,c,move.to);
+    }
+   });
+  }catch(err){console.error('Bot move failed:',err);}
+ }
  io.on('connection',socket=>{
   let count=0,window=Date.now();
   function action(name:string,fn:(data:any)=>any){socket.on(name,(data,ack)=>{
@@ -45,12 +95,26 @@ export function createApp(port=Number(process.env.PORT)||3001) {
   action('create',data=>{
    if(socket.data.room)throw new Error('Leave your current room first.');
    if(rooms.size>=100)throw new Error('The theater is full. Try again later.');
-   const mode:Mode=['local','demo'].includes(data.mode)?data.mode:'online';
-   const game=new Game(mode,mode==='demo'?(data.demo||'check'):undefined);
-   const color:Color=mode!=='online'?'w':data.color==='b'?'b':data.color==='random'?(Math.random()<.5?'w':'b'):'w';
+   const mode:Mode=['local','demo','bot'].includes(data.mode)?data.mode:'online';
+   const difficulty:BotDifficulty=['easy','medium','hard','expert'].includes(data.difficulty)?data.difficulty:'medium';
+   const game=new Game(mode,mode==='demo'?(data.demo||'check'):undefined,difficulty);
+   const color:Color=(mode==='local'||mode==='demo')?'w':data.color==='b'?'b':data.color==='random'?(Math.random()<.5?'w':'b'):'w';
    game.players[color]={name:String(data.name||'Anonymous legend').trim().slice(0,24)||'Anonymous legend',token:randomBytes(24).toString('hex'),socket:socket.id};
-   if(mode!=='online')game.players.b={name:String(data.opponentName||'The challenger').trim().slice(0,24)||'The challenger',token:randomBytes(24).toString('hex'),socket:null};
-   rooms.set(game.id,game);baseline(game);return attach(game,color);
+   if(mode==='local')game.players.b={name:String(data.opponentName||'The challenger').trim().slice(0,24)||'The challenger',token:randomBytes(24).toString('hex'),socket:null};
+   if(mode==='bot'){
+    const botColor:Color=color==='w'?'b':'w';
+    const botNames:Record<BotDifficulty,string>={
+     easy:'Noob Bot (Easy) 🤪',
+     medium:'Casual Bot (Medium) ☕',
+     hard:'Tryhard Bot (Hard) ⚡',
+     expert:'Grandmaster Stockfish 🤖',
+    };
+    game.players[botColor]={name:botNames[difficulty],token:'bot',socket:null};
+   }
+   rooms.set(game.id,game);baseline(game);
+   const res=attach(game,color);
+   if(mode==='bot'&&game.chess.turn()!==color)void triggerBotMove(game);
+   return res;
   });
   action('join',data=>{
    if(socket.data.room)throw new Error('Leave your current room first.');
@@ -72,6 +136,10 @@ export function createApp(port=Number(process.env.PORT)||3001) {
    const event=boardEvent(game.chess,move,game.version);
    if(event){const variant=((game.lastCaption[event.kind+'w']??-1)+1)%catalog[event.kind].captions.length;for(const c of ['w','b'] as Color[])react(game,event.kind,c,event.square,variant);}
    const gameId=game.gameId,version=game.version,after=game.chess.fen();
+   const color=game.color(socket.id);
+   if(game.mode==='bot'&&!game.result&&color&&game.chess.turn()!==color){
+    void triggerBotMove(game);
+   }
    if(!game.result)void engine.analyze(game.id,before,after).then(scores=>{
     if(!scores||rooms.get(game.id)!==game||game.gameId!==gameId||game.version!==version||game.result)return;
     for(const c of ['w','b'] as Color[]){
@@ -89,8 +157,18 @@ export function createApp(port=Number(process.env.PORT)||3001) {
    if(data.action==='resign'&&!game.result)game.result=`${color==='w'?'Black':'White'} wins by resignation`;
    else if(data.action==='draw'&&!game.result){if(game.mode!=='online'||(game.offer&&game.offer!==color)){game.result='Draw by agreement';game.offer=null;}else game.offer=color;}
    else if(data.action==='decline')game.offer=null;
-   else if(data.action==='rematch'&&game.result){if(game.mode!=='online'||(game.rematch&&game.rematch!==color)){game.reset();baseline(game);}else game.rematch=color;}
-   else if(data.action==='reset'&&game.mode!=='online'){game.reset(game.demo);baseline(game);}
+   else if(data.action==='rematch'&&game.result){
+    if(game.mode==='bot'||game.mode!=='online'||(game.rematch&&game.rematch!==color)){
+     game.reset(game.demo);baseline(game);
+     const userColor=game.color(socket.id);
+     if(game.mode==='bot'&&userColor&&game.chess.turn()!==userColor)void triggerBotMove(game);
+    }else game.rematch=color;
+   }
+   else if(data.action==='reset'&&(game.mode==='local'||game.mode==='bot')){
+    game.reset(game.demo);baseline(game);
+    const userColor=game.color(socket.id);
+    if(game.mode==='bot'&&userColor&&game.chess.turn()!==userColor)void triggerBotMove(game);
+   }
    else if(data.action==='demo'&&game.mode==='demo'){game.reset(String(data.demo));baseline(game);}
    else throw new Error('This action is not available.');
    broadcast(game);return {};
