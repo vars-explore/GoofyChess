@@ -9,7 +9,7 @@ import { describeMotion, type MoveMotion } from '../shared/motion';
 import { configureAudio, moveSound, reactionSound, stopReactionSound, unlockAudio } from './audio';
 import { Meme } from './Meme';
 import { CheckmateScene } from './CheckmateScene';
-import { memeMedia, reactionSounds } from '../shared/media';
+import { memeMedia } from '../shared/media';
 import { checkmateNames, isNewMove } from '../shared/presentation';
 import { demos } from '../shared/demos';
 import { resolveVoiceMove } from './voice';
@@ -130,12 +130,14 @@ function App(){
   const showReaction=(next:Reaction)=>{
    const current=stateRef.current;
    if(!current||current.gameId!==next.gameId||current.version!==next.version||!prefs.current.enabled)return;
+   if(next.kind==='mate'){
+    if(timer.current)clearTimeout(timer.current);
+    timer.current=null;setReaction(null);setFinale(checkmateNames(current));return;
+   }
    if(timer.current)clearTimeout(timer.current);setReaction(next);
-   if(!prefs.current.muted)reactionSound(reactionSounds[next.kind],next.duration);
+   if(!prefs.current.muted)reactionSound(next.kind,next.duration);
    timer.current=setTimeout(()=>{
     timer.current=null;setReaction(null);
-    const latest=stateRef.current;
-    if(next.kind==='mate'&&prefs.current.enabled&&latest?.gameId===next.gameId&&latest.version===next.version)setFinale(checkmateNames(latest));
    },next.duration);
   };
   const onState=(next:Snapshot)=>{

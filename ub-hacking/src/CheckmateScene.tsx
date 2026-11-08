@@ -23,12 +23,11 @@ export function CheckmateScene({winner,loser,reduced,onClose}:{winner:string;los
  const button=useRef<HTMLButtonElement>(null);
  useEffect(()=>{
   const prior=document.activeElement as HTMLElement|null;button.current?.focus();
-  reactionSound('slash',1200);
-  const impact=setTimeout(()=>reactionSound('boom',1600),reduced?100:1500);
+  reactionSound('mate',3000);
   const end=setTimeout(()=>closeRef.current(),reduced?3000:6200);
   const keyboard=(e:KeyboardEvent)=>{if(e.key==='Escape')closeRef.current();if(e.key==='Tab'){e.preventDefault();button.current?.focus();}};
   document.addEventListener('keydown',keyboard);
-  return()=>{clearTimeout(impact);clearTimeout(end);stopReactionSound();document.removeEventListener('keydown',keyboard);prior?.focus();};
+  return()=>{clearTimeout(end);stopReactionSound();document.removeEventListener('keydown',keyboard);prior?.focus();};
  },[reduced]);
  return <div className={`checkmate-scene ${reduced?'still':''}`} role="dialog" aria-modal="true" aria-label={`Checkmate. ${winner} defeats ${loser}.`}>
   <div className="anime-grain"/><div className="speed-lines"/>

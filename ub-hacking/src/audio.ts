@@ -1,7 +1,7 @@
-import { soundMedia, type SoundId } from '../shared/media';
+import { pickReactionSound, soundMedia, type SoundId } from '../shared/media';
 let context:AudioContext|undefined,master:GainNode|undefined,reaction:HTMLAudioElement|undefined;
 let reactionTimer:ReturnType<typeof setTimeout>|undefined;
-let unlocked=false,muted=false,level=.6,generation=0;
+let unlocked=false,muted=false,level=.6,generation=0,lastReactionSoundAt=0,lastReactionSoundId:SoundId|undefined;
 const samples=new Map<SoundId,HTMLAudioElement>();
 export function unlockAudio(){
  context??=new AudioContext();if(!master){master=context.createGain();master.connect(context.destination);}
@@ -10,8 +10,12 @@ export function unlockAudio(){
 }
 export function configureAudio(isMuted:boolean,volume:number){muted=isMuted;level=volume;if(master)master.gain.value=muted?0:level;if(reaction)reaction.volume=level;if(muted)stopReactionSound();}
 export function stopReactionSound(){generation++;if(reactionTimer)clearTimeout(reactionTimer);if(reaction){reaction.pause();reaction.oncanplay=null;reaction.onerror=null;}reaction=undefined;}
-export function reactionSound(id:SoundId,maxMs=3200){
- if(!unlocked||muted)return;stopReactionSound();
+export function reactionSound(kind:Parameters<typeof pickReactionSound>[0],maxMs=3200){
+ if(!unlocked||muted||Date.now()-lastReactionSoundAt<2500)return;
+ if(reaction&&!reaction.paused)return;
+ const id=pickReactionSound(kind,lastReactionSoundId);
+ lastReactionSoundAt=Date.now();lastReactionSoundId=id;
+ stopReactionSound();
  const token=generation,audio=samples.get(id)||new Audio('/api/media/sound-'+id);reaction=audio;audio.currentTime=0;audio.volume=level;
  let expired=false;
  const finish=()=>{expired=true;audio.pause();audio.oncanplay=null;audio.onerror=null;if(reaction===audio)reaction=undefined;};

@@ -26,12 +26,25 @@ export const memeMedia:Record<ReactionKind,{id:string;name:string;url:string}>={
  danger:{id:'4087833',name:'Waiting Skeleton',url:'https://i.imgflip.com/2fm6x.jpg'},
 };
 export const soundMedia={
- boom:{url:'https://www.myinstants.com/media/sounds/vine-boom.mp3',source:'https://www.myinstants.com/en/instant/vine-boom-sound-70972/'},
- bruh:{url:'https://www.myinstants.com/media/sounds/movie_1.mp3',source:'https://www.myinstants.com/en/instant/bruh/'},
- wow:{url:'https://www.myinstants.com/media/sounds/anime-wow-sound-effect.mp3',source:'https://www.myinstants.com/en/instant/anime-wow/'},
- violin:{url:'https://www.myinstants.com/media/sounds/sad-violin.mp3',source:'https://www.myinstants.com/en/instant/sad-violin/'},
- slash:{url:'https://www.myinstants.com/media/sounds/sword_slash-ab22fe02-3826-345a-80ad-dc22261a9127.mp3',source:'https://www.myinstants.com/en/instant/sword-slash-20958/'},
+ comedic:{url:'/sounds/Comedic_meme-style_r-1794095088013.mp3',source:'local'},
+ scratch:{url:'/sounds/Create_a_classic_sna-1794150046226.mp3',source:'local'},
+ whoosh:{url:'/sounds/Quick_whoosh_then_a_-1794150049305.mp3',source:'local'},
  fahh:{url:'/sounds/fahh.mp3',source:'local'},
 };
 export type SoundId=keyof typeof soundMedia;
-export const reactionSounds:Record<ReactionKind,SoundId>={check:'boom',mate:'slash',queen:'violin',promotion:'wow',castle:'slash',enpassant:'bruh',stalemate:'bruh',capture:'boom',winning:'wow',losing:'violin',swing:'fahh',comeback:'wow',danger:'boom',fork:'wow',doublecheck:'boom',recapture:'bruh',pawnbully:'boom',kingcapture:'slash',underpromotion:'bruh',streak:'wow',instantkarma:'fahh',firstblood:'slash',queentrade:'violin'};
+export const reactionSounds:Record<ReactionKind,SoundId[]>={
+ check:['scratch','comedic'],mate:['whoosh','comedic'],queen:['scratch','fahh'],
+ promotion:['whoosh','comedic'],castle:['whoosh','comedic'],enpassant:['scratch','comedic'],
+ stalemate:['fahh','comedic'],capture:['comedic','scratch'],winning:['comedic','whoosh'],
+ losing:['fahh','scratch'],swing:['scratch','fahh'],comeback:['comedic','whoosh'],
+ danger:['scratch','fahh'],fork:['comedic','scratch'],doublecheck:['scratch','comedic'],
+ recapture:['comedic','scratch'],pawnbully:['comedic','fahh'],kingcapture:['whoosh','comedic'],
+ underpromotion:['comedic','whoosh'],streak:['comedic','whoosh'],instantkarma:['fahh','scratch'],
+ firstblood:['whoosh','comedic'],queentrade:['scratch','fahh'],
+};
+
+export function pickReactionSound(kind:ReactionKind,previous?:SoundId,random=Math.random):SoundId {
+ const options=reactionSounds[kind],alternatives=previous?options.filter(id=>id!==previous):options;
+ const choices=alternatives.length?alternatives:options;
+ return choices[Math.floor(random()*choices.length)];
+}
