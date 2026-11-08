@@ -16,6 +16,10 @@ export async function summarizeWithGemini(sans:string[],scores:Score[],result:st
  const prompt=[
   'Write a concise post-game chess recap in 2–4 sentences using only the supplied moves and Stockfish evaluations.',
   'Explain who won and why, identify the biggest evaluation swings or turning points, and describe the game in approachable language.',
+  'Sound like a witty Gen Z friend recapping the match in the group chat: playful, punchy, and a little dramatic.',
+  'Use 1–2 natural slang phrases such as "let them cook", "sold the bag", "main character energy", "plot armor", or "absolutely cooked" when the actual game supports them. Vary the wording; do not force slang into every sentence.',
+  'Pair the joke with a concrete chess takeaway. Roast the move, not the player; keep it friendly, with no profanity or personal insults.',
+  'Use plain text without headings or bullet points, and at most one emoji. Avoid repetitive catchphrases or a wall of slang.',
   'Scores are from White’s perspective: positive favors White and negative favors Black; mate scores name the mating side.',
   'Do not invent tactics or claim a move was a blunder unless the evaluation supports it. If the game stayed close, say so.',
   `Result: ${result}`,
