@@ -50,11 +50,20 @@ export function createApp(port=Number(process.env.PORT)||3001) {
   const botColor=(['w','b'] as Color[]).find(c=>!game.players[c]?.socket);
   if(!botColor||game.chess.turn()!==botColor)return;
   const gameId=game.gameId,version=game.version;
-  await new Promise(r=>setTimeout(r,550));
+  // Give the opponent a natural thinking beat, even on easy or cached moves.
+  await new Promise(r=>setTimeout(r,1600+Math.random()*400));
   if(rooms.get(game.id)!==game||game.gameId!==gameId||game.version!==version||game.result)return;
   const fen=game.chess.fen();
   const diff=game.difficulty||'medium';
   let uci=(diff==='easy'&&Math.random()<0.35)?null:await engine.bestMove(game.id,fen,diff);
+  // Analysis may have triggered a meme while Stockfish was choosing its move.
+  // Let that reaction and its sound finish before advancing the board.
+  while(true){
+   if(rooms.get(game.id)!==game||game.gameId!==gameId||game.version!==version||game.result)return;
+   const remaining=Math.max(game.lastReaction.w,game.lastReaction.b)+reactionConfig.durationMs+150-Date.now();
+   if(remaining<=0)break;
+   await new Promise(r=>setTimeout(r,remaining));
+  }
   let step:{from:string;to:string;promotion?:string}|null=null;
   if(uci&&/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)){
    step={from:uci.slice(0,2),to:uci.slice(2,4),promotion:uci[4]||undefined};
